@@ -1,0 +1,8 @@
+<h1>Test</h1>
+
+<form action="{% url index %}" method="post">
+{% csrf_token %}
+  <input type="text" name="fmt" />
+  <input type="text" name="data" />
+  <input type="submit" />
+</form>
