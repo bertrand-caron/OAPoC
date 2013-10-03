@@ -10,13 +10,14 @@ def index(request):
     raise Http404
 
   params = request.POST.dict()
-  try:
+  if 'csrfmiddlewaretoken' in params:
     params.pop('csrfmiddlewaretoken')
-  except:
-    pass
 
   pos = get_atom_pos(params)
-  return HttpResponse(simplejson.dumps(pos, indent=2), mimetype="application/json")
+  return HttpResponse(
+    simplejson.dumps(pos, indent=2, default=(lambda o: o.__dict__)),
+    mimetype="application/json"
+  )
 
 def test(request):
   return render(request, 'test.html')

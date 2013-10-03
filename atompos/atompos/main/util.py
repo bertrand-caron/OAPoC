@@ -1,5 +1,5 @@
-import re
 from subprocess import Popen, PIPE
+import re
 
 # TODO: expand
 SUPPORTED_FORMATS = [
@@ -7,13 +7,46 @@ SUPPORTED_FORMATS = [
   'mol'
 ]
 
-LICENSE_ERROR = "Mol2Export: License not found for charge plugin group. No charges will be written.\n"
+LICENSE_ERROR = \
+  "Mol2Export: License not found for charge plugin group. No charges will " + \
+  "be written.\n"
 
 class ValidationError(Exception):
   pass
 
 class ConversionError(Exception):
   pass
+
+class Atom(object):
+  id = 0
+  element = ""
+  element_id = 0
+  x = 0.
+  y = 0.
+  
+  def __init__(self, id, element, element_id, x, y):
+    self.id = id
+    self.element = element
+    self.element_id = element_id
+    self.x = x
+    self.y = y
+
+  def __repr__(self):
+    return str(self.__dict__)
+
+class Bond(object):
+  a1 = 0
+  a2 = 0
+  bond_type = 0
+  
+  def __init__(self, a1, a2, bond_type):
+    self.a1 = a1
+    self.a2 = a2
+    self.bond_type = bond_type
+
+  def __repr__(self):
+    return str(self.__dict__)
+
 
 def parse_atoms_bonds(mol2_str):
   atoms = []
@@ -35,29 +68,49 @@ def parse_atoms_bonds(mol2_str):
     if section == 1:
       parts = re.split("\s+", l)
       # Strip off the atom index
-      name = re.match("[A-Za-z]", parts[1]).group(0)
-      atoms.append((name, float(parts[2]), float(parts[3])))
+      print "p1", parts[1]
+      element = re.match("[A-Za-z]+", parts[1]).group(0)
+      element_id = re.match(".*([0-9])", parts[1]).group(1)
+      atoms.append(Atom(
+        int(parts[0]),
+        element,
+        element_id,
+        float(parts[2]),
+        float(parts[3])
+      ))
     elif section == 2:
       parts = re.split("\s+", l)
+      try:
+        bond_type = int(parts[3])
+      except ValueError:
+        # Use type 4 for aromatic rings
+        bond_type = 4
       # Given indices start at 1, correct this.
-      bonds.append((int(parts[1]) - 1, int(parts[2]) - 1, parts[3]))
+      bonds.append(Bond(int(parts[1]) - 1, int(parts[2]) - 1, bond_type))
   
   return atoms, bonds
 
-def normalize_positions(pos):
-  xs = map((lambda l: l[1]), pos)
-  ys = map((lambda l: l[2]), pos)
+def normalize_positions(atoms):
+  # Shift the top left corner to 0,0
+  xs = map((lambda a: a.x), atoms)
+  ys = map((lambda a: a.y), atoms)
   mx = -min(xs)
   my = -min(ys)
   
-  pos = map((lambda p: (p[0], p[1] + mx, p[2] + my)), pos)
+  for a in atoms:
+    a.x += mx
+    a.y += my
   
-  xs = map((lambda l: l[1]), pos)
-  ys = map((lambda l: l[2]), pos)
-  cs = xs + ys
-  mc = max(cs)
+  # Normalize the coordinates to values between 0 and 1
+  xs = map((lambda a: a.x), atoms)
+  ys = map((lambda a: a.y), atoms)
+  mc = max(xs + ys)
   
-  return map((lambda p: (p[0], p[1] / mc, p[2] / mc)), pos)
+  for a in atoms:
+    a.x /= mc
+    a.y /= mc
+
+  return atoms
 
 def get_positions(fmt, data):
   p = Popen(
@@ -73,7 +126,7 @@ def get_positions(fmt, data):
 
   atoms, bonds = parse_atoms_bonds(out)
   
-  return {'pos': normalize_positions(atoms), 'bonds': bonds}
+  return {'atoms': normalize_positions(atoms), 'bonds': bonds}
 
 def get_atom_pos(args):
   try:
@@ -102,4 +155,3 @@ def validate_args(args):
     raise ValidationError("Missing molecule data")
   
   return True
-
