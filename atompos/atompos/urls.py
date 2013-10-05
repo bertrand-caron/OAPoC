@@ -14,6 +14,6 @@ urlpatterns = patterns('atompos.main.views',
 
     # Uncomment the next line to enable the admin:
     # url(r'^admin/', include(admin.site.urls)),
-    url(r'^OAPoC/$', 'index', name='index'),
-    url(r'^OAPoC/test/', 'test', name='test'),
+    url(r'^$', 'index', name='index'),
+    url(r'^test/', 'test', name='test'),
 )

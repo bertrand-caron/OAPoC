@@ -11,6 +11,8 @@ LICENSE_ERROR = \
   "Mol2Export: License not found for charge plugin group. No charges will " + \
   "be written.\n"
 
+MOLCONVERT = "/usr/local/lib/ChemAxon/MarvinBeans/bin/molconvert"
+
 class ValidationError(Exception):
   pass
 
@@ -114,7 +116,7 @@ def normalize_positions(atoms):
 
 def get_positions(fmt, data):
   p = Popen(
-    "molconvert mol2 -2 -s \"%s\"" % (data),
+    "%s mol2 -2 -s \"%s\"" % (MOLCONVERT, data),
     shell=True,
     stdout=PIPE,
     stderr=PIPE
