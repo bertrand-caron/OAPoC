@@ -1,3 +1,4 @@
+import os
 from subprocess import Popen, PIPE
 import re
 
@@ -9,9 +10,12 @@ SUPPORTED_FORMATS = [
 
 LICENSE_ERROR = \
   "Mol2Export: License not found for charge plugin group. No charges will " + \
-  "be written.\n"
+  "be written." + os.linesep
 
-MOLCONVERT = "/usr/local/lib/ChemAxon/MarvinBeans/bin/molconvert"
+if os.name == 'nt':
+  MOLCONVERT = "S:\\Programs\\MarvinBeans\\bin\\molconvert.bat"
+else:
+  MOLCONVERT = "/usr/local/lib/ChemAxon/MarvinBeans/bin/molconvert"
 
 class ValidationError(Exception):
   pass
@@ -70,7 +74,6 @@ def parse_atoms_bonds(mol2_str):
     if section == 1:
       parts = re.split("\s+", l)
       # Strip off the atom index
-      print "p1", parts[1]
       element = re.match("[A-Za-z]+", parts[1]).group(0)
       element_id = re.match(".*([0-9])", parts[1]).group(1)
       atoms.append(Atom(

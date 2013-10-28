@@ -1,6 +1,6 @@
 <h1>Test</h1>
 
-<form action="{% url index %}" method="post">
+<form action="{% url "index" %}" method="post">
   {% csrf_token %}
   <input type="text" name="fmt" placeholder="format" />
   <br />
