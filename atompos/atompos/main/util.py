@@ -41,11 +41,13 @@ class Atom(object):
     return str(self.__dict__)
 
 class Bond(object):
+  id = 0
   a1 = 0
   a2 = 0
   bond_type = 0
   
-  def __init__(self, a1, a2, bond_type):
+  def __init__(self, id, a1, a2, bond_type):
+    self.id = id
     self.a1 = a1
     self.a2 = a2
     self.bond_type = bond_type
@@ -88,10 +90,9 @@ def parse_atoms_bonds(mol2_str):
       try:
         bond_type = int(parts[3])
       except ValueError:
-        # Use type 4 for aromatic rings
+        # Use type 4 for aromatic bonds
         bond_type = 4
-      # Given indices start at 1, correct this.
-      bonds.append(Bond(int(parts[1]) - 1, int(parts[2]) - 1, bond_type))
+      bonds.append(Bond(int(parts[0]), int(parts[1]), int(parts[2]), bond_type))
   
   return atoms, bonds
 
