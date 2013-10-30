@@ -1,3 +1,4 @@
+from django.core.cache import cache
 import os
 from subprocess import Popen, PIPE
 import re
@@ -144,11 +145,17 @@ def get_atom_pos(args):
   fmt = args.get("fmt").lower()
   data = args.get("data")
 
+  cached_pos = cache.get(data)
+  if cached_pos:
+    return cached_pos
+
   try:
     pos = get_positions(fmt, data)
   except ConversionError as e:
     return {'error': e.message}
 
+  # Cache for a year (infinitely enough..)
+  cache.set(data, pos, 60 * 60 * 24 * 365)
   return pos
 
 def validate_args(args):
