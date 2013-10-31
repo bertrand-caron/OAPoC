@@ -133,7 +133,7 @@ def get_positions(fmt, data):
 
   atoms, bonds = parse_atoms_bonds(out)
   
-  return {'atoms': normalize_positions(atoms), 'bonds': bonds}
+  return {'data_str': data, 'atoms': normalize_positions(atoms), 'bonds': bonds}
 
 def get_atom_pos(args):
   try:
