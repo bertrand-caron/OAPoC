@@ -30,6 +30,9 @@ class LoggingMiddleware(object):
         return None
 
     def process_response(self, request, response):
+        if not hasattr(request, 'timer'):
+            request.timer = time()
+
         self.logger.info(
             '%s %s %s %s [%s] (%.0f ms)',
             request.META["SERVER_PROTOCOL"],
