@@ -27,14 +27,14 @@ class ConversionError(Exception):
 class Atom(object):
   id = 0
   element = ""
-  element_id = 0
+  elementID = 0
   x = 0.
   y = 0.
   
-  def __init__(self, id, element, element_id, x, y):
+  def __init__(self, id, element, elementID, x, y):
     self.id = id
     self.element = element
-    self.element_id = element_id
+    self.elementID = elementID
     self.x = x
     self.y = y
 
@@ -45,25 +45,25 @@ class Bond(object):
   id = 0
   a1 = 0
   a2 = 0
-  bond_type = 0
+  bondType = 0
   
-  def __init__(self, id, a1, a2, bond_type):
+  def __init__(self, id, a1, a2, bondType):
     self.id = id
     self.a1 = a1
     self.a2 = a2
-    self.bond_type = bond_type
+    self.bondType = bondType
 
   def __repr__(self):
     return str(self.__dict__)
 
 
-def parse_atoms_bonds(mol2_str):
+def parse_atoms_bonds(mol2Str):
   atoms = []
   bonds = []
   
   # Sections: 0 -> header, 1 -> atoms, 2 -> bonds, 3 -> footer
   section = 0
-  for l in mol2_str.split('\n'):
+  for l in mol2Str.split('\n'):
     if re.search("ATOM", l):
       section = 1
       continue
@@ -78,22 +78,22 @@ def parse_atoms_bonds(mol2_str):
       parts = re.split("\s+", l)
       # Strip off the atom index
       element = re.match("[A-Za-z]+", parts[1]).group(0)
-      element_id = re.match(".*([0-9])", parts[1]).group(1)
+      elementID = re.match(".*([0-9])", parts[1]).group(1)
       atoms.append(Atom(
         int(parts[0]),
         element,
-        element_id,
+        elementID,
         float(parts[2]),
         float(parts[3])
       ))
     elif section == 2:
       parts = re.split("\s+", l)
       try:
-        bond_type = int(parts[3])
+        bondType = int(parts[3])
       except ValueError:
         # Use type 4 for aromatic bonds
-        bond_type = 4
-      bonds.append(Bond(int(parts[0]), int(parts[1]), int(parts[2]), bond_type))
+        bondType = 4
+      bonds.append(Bond(int(parts[0]), int(parts[1]), int(parts[2]), bondType))
   
   return atoms, bonds
 
@@ -133,7 +133,7 @@ def get_positions(fmt, data):
 
   atoms, bonds = parse_atoms_bonds(out)
   
-  return {'data_str': data, 'atoms': normalize_positions(atoms), 'bonds': bonds}
+  return {'dataStr': data, 'atoms': normalize_positions(atoms), 'bonds': bonds}
 
 def get_atom_pos(args):
   try:
@@ -145,9 +145,9 @@ def get_atom_pos(args):
   fmt = args.get("fmt").lower()
   data = args.get("data")
 
-  cached_pos = cache.get(data)
-  if cached_pos:
-    return cached_pos
+  cachedPos = cache.get(data)
+  if cachedPos:
+    return cachedPos
 
   try:
     pos = get_positions(fmt, data)
