@@ -1,7 +1,9 @@
 from django.core.cache import cache
+import logging
 import os
-from subprocess import Popen, PIPE
 import re
+from subprocess import Popen, PIPE
+from tempfile import NamedTemporaryFile
 
 # TODO: expand
 SUPPORTED_FORMATS = [
@@ -17,6 +19,8 @@ if os.name == 'nt':
   MOLCONVERT = "S:\\Programs\\MarvinBeans\\bin\\molconvert.bat"
 else:
   MOLCONVERT = "/usr/local/lib/ChemAxon/MarvinBeans/bin/molconvert"
+
+logger = logging.getLogger('atompos')
 
 class ValidationError(Exception):
   pass
@@ -64,6 +68,7 @@ def parse_atoms_bonds(mol2Str):
   # Sections: 0 -> header, 1 -> atoms, 2 -> bonds, 3 -> footer
   section = 0
   for l in mol2Str.split('\n'):
+    logger.debug("Line: %s" % l)
     if re.search("ATOM", l):
       section = 1
       continue
@@ -98,6 +103,9 @@ def parse_atoms_bonds(mol2Str):
   return atoms, bonds
 
 def normalize_positions(atoms):
+  if len(atoms) == 0:
+    return atoms
+
   # Shift the top left corner to 0,0
   xs = map((lambda a: a.x), atoms)
   ys = map((lambda a: a.y), atoms)
@@ -119,20 +127,55 @@ def normalize_positions(atoms):
 
   return atoms
 
-def get_positions(fmt, data):
-  p = Popen(
-    "%s mol2 -2 -s \"%s\"" % (MOLCONVERT, data),
-    shell=True,
-    stdout=PIPE,
-    stderr=PIPE
-  )
-  
-  out, err = p.communicate()
-  if len(err) > 0 and err != LICENSE_ERROR:
-    raise ConversionError(err)
+def fix_pdb(data):
+  fixed = ""
+  for line in data.split('\n'):
+    parts = line.split()
+    if len(parts) > 3 and parts[0] == "HETATM" and len(parts[2]) != 3:
+      fix = "%s0%s" % (parts[2][0], parts[2][1])
+      logger.debug("Fixing %s: %s" % (line, fix))
+      fixed += "%s %4s %4s %4s %4s %11s %7s %7s %5s %5s %11s\n" % \
+        (parts[0], parts[1], fix, parts[3], parts[4], parts[5], parts[6], \
+         parts[7], parts[8], parts[9], parts[10])
+    elif len(line) > 0:
+      fixed += line + "\n"
+  return fixed
 
-  atoms, bonds = parse_atoms_bonds(out)
-  
+def get_positions(fmt, data):
+  if data.count('\n') > 1:
+    logger.debug("Assuming PDB")
+
+    with NamedTemporaryFile() as fp:
+      fp.write(fix_pdb(data))
+      fp.seek(0)
+
+      p = Popen(
+        "%s -2 mol2 %s" % (MOLCONVERT, fp.name),
+        shell=True,
+        stdout=PIPE,
+        stderr=PIPE
+      )
+
+      out, err = p.communicate()
+      if len(err) > 0 and err != LICENSE_ERROR:
+        raise ConversionError(err)
+
+    atoms, bonds = parse_atoms_bonds(out)
+
+  else:
+    p = Popen(
+      "%s mol2 -2 -s \"%s\"" % (MOLCONVERT, data),
+      shell=True,
+      stdout=PIPE,
+      stderr=PIPE
+    )
+
+    out, err = p.communicate()
+    if len(err) > 0 and err != LICENSE_ERROR:
+      raise ConversionError(err)
+
+    atoms, bonds = parse_atoms_bonds(out)
+
   return {'dataStr': data, 'atoms': normalize_positions(atoms), 'bonds': bonds}
 
 def get_atom_pos(args):
@@ -145,17 +188,20 @@ def get_atom_pos(args):
   fmt = args.get("fmt").lower()
   data = args.get("data")
 
-  cachedPos = cache.get(data)
-  if cachedPos:
-    return cachedPos
+  if len(data) < 1024:
+    cachedPos = cache.get(data)
+    if cachedPos:
+      return cachedPos
 
   try:
     pos = get_positions(fmt, data)
   except ConversionError as e:
     return {'error': e.message}
 
-  # Cache for a year (infinitely enough..)
-  cache.set(data, pos, 60 * 60 * 24 * 365)
+  if len(data) < 1024:
+    # Cache for a year (infinitely enough..)
+    cache.set(data, pos, 60 * 60 * 24 * 365)
+
   return pos
 
 def validate_args(args):

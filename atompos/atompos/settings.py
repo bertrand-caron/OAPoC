@@ -168,6 +168,11 @@ LOGGING = {
         }
     },
     'loggers': {
+        '': {
+            'handlers': ['null', 'console'],
+            'propagate': True,
+            'level': 'DEBUG',
+        },
         'django': {
             'handlers': ['null', 'console'],
             'propagate': True,
