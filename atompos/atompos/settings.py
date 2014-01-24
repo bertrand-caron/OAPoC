@@ -1,3 +1,13 @@
+import os
+import django
+
+# Calculated paths for django and the site
+# Used as starting points for various other paths
+# Thanks to Gareth Rushgrove: 
+# http://www.morethanseven.net/2009/02/11/django-settings-tip-setting-relative-paths/
+DJANGO_ROOT = os.path.dirname(os.path.realpath(django.__file__))
+SITE_ROOT = os.path.dirname(os.path.realpath(__file__))
+
 # Django settings for atompos project.
 
 DEBUG = True
@@ -161,6 +171,14 @@ LOGGING = {
             'class': 'logging.StreamHandler',
             'formatter': 'simple'
         },
+        'logfile': {
+            'level':'DEBUG',
+            'class':'logging.handlers.RotatingFileHandler',
+            'filename': SITE_ROOT + "/log/debug.log",
+            'maxBytes': 1000000,
+            'backupCount': 2,
+            'formatter': 'simple',
+        },
         'mail_admins': {
             'level': 'ERROR',
             'filters': ['require_debug_false'],
@@ -169,7 +187,7 @@ LOGGING = {
     },
     'loggers': {
         '': {
-            'handlers': ['null', 'console'],
+            'handlers': ['null', 'console', 'logfile'],
             'propagate': True,
             'level': 'DEBUG',
         },

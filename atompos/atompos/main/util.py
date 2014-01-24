@@ -163,6 +163,7 @@ def get_positions(fmt, data):
     atoms, bonds = parse_atoms_bonds(out)
 
   else:
+    logger.debug("%s mol2 -2 -s \"%s\"" % (MOLCONVERT, data))
     p = Popen(
       "%s mol2 -2 -s \"%s\"" % (MOLCONVERT, data),
       shell=True,
