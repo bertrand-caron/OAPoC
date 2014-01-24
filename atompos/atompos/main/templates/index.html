@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>OAPoC - Online Atom Position Calulator</title>
+  </head>
+
+  <body>
+    <h1>OAPoC</h1>
+    <h2>Online Atom Position Calulator</h2>
+
+    <hr />
+
+    <h3>Using manual input</h3>
+
+    <form action="generate/" method="post">
+      {% csrf_token %}
+      <textarea rows="10" cols="50" name="data" placeholder="PDB / InChI / SMILES string"></textarea>
+      <br />
+      <input type="submit" />
+    </form>
+
+    <hr />
+
+    <h3>Using PDB data from the ATB</h3>
+
+    <form action="loadATB/" method="post">
+      {% csrf_token %}
+      <input type="text" name="molid" placeholder="ATB molid" />
+      <br />
+      <input type="submit" />
+    </form>
+
+    <hr />
+  </body>
+</html>

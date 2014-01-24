@@ -2,8 +2,10 @@ from django.core.cache import cache
 import logging
 import os
 import re
+import socket
 from subprocess import Popen, PIPE
 from tempfile import NamedTemporaryFile
+from urllib2 import urlopen
 
 # TODO: expand
 SUPPORTED_FORMATS = [
@@ -17,12 +19,18 @@ BABEL = "obabel"
 BABEL_OPTS = "-o%s --gen2d -h" % OUTPUT_FORMAT
 SUCCESS_MSG = "1 molecule converted\n"
 
+ATB_PDB_URL = "http://compbio.biosci.uq.edu.au/atb/download.py?outputType=" + \
+  "v2Top&file=pdb_allatom_unoptimised&molid="
+
 logger = logging.getLogger('atompos')
 
 class ValidationError(Exception):
   pass
 
 class ConversionError(Exception):
+  pass
+
+class ATBLoadError(Exception):
   pass
 
 class Atom(object):
@@ -56,6 +64,52 @@ class Bond(object):
 
   def __repr__(self):
     return str(self.__dict__)
+
+
+def load_atb_pdb(molid):
+  url = "%s%s" % (ATB_PDB_URL, molid)
+  try:
+    data = urlopen(url).read()
+    first_line = data.split('\n')[0]
+    if not re.search("HEADER", first_line):
+      raise ATBLoadError("Invalid PDB file returned")
+  except Exception as e:
+    raise ATBLoadError("Could not retrieve PDB from ATB: %s" % (e.message))
+
+  return get_atom_pos({"data": data, "fmt": "pdb"}, molid)
+
+def get_positions_atb(args):
+  try:
+    validate_args_atb(args)
+  except ValidationError as e:
+    return {'error': e.message}
+
+  # This is safe now, as all have been validated
+  molid = args.get("molid")
+
+  cachedPos = cache.get(molid)
+  if cachedPos:
+    return cachedPos
+
+  try:
+    pos = load_atb_pdb(molid)
+  except (ATBLoadError, ConversionError) as e:
+    return {'error': e.message}
+
+  return pos
+
+def validate_args_atb(args):
+  molid = args.get("molid")
+
+  if not molid:
+    raise ValidationError("Missing molecule ID")
+
+  try:
+    int(molid)
+  except ValueError:
+    raise ValidationError("Molecule ID should be numeric")
+
+  return True
 
 
 def parse_atoms_bonds(mol2Str):
@@ -178,7 +232,7 @@ def get_positions(data, fmt=None):
 
   return {'dataStr': data, 'atoms': normalize_positions(atoms), 'bonds': bonds}
 
-def get_atom_pos(args):
+def get_atom_pos(args, cache_key=None):
   try:
     validate_args(args)
   except ValidationError as e:
@@ -188,8 +242,9 @@ def get_atom_pos(args):
   fmt = args.get("fmt")
   data = args.get("data")
 
-  if len(data) < 1024:
-    cachedPos = cache.get(data)
+  cache_key = cache_key or data
+  if len(cache_key) < 1024:
+    cachedPos = cache.get(cache_key)
     if cachedPos:
       return cachedPos
 
@@ -198,9 +253,9 @@ def get_atom_pos(args):
   except ConversionError as e:
     return {'error': e.message}
 
-  if len(data) < 1024:
+  if len(cache_key) < 1024:
     # Cache for a year (infinitely enough..)
-    cache.set(data, pos, 60 * 60 * 24 * 365)
+    cache.set(cache_key, pos, 60 * 60 * 24 * 365)
 
   return pos
 
