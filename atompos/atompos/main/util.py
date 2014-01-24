@@ -8,17 +8,14 @@ from tempfile import NamedTemporaryFile
 # TODO: expand
 SUPPORTED_FORMATS = [
   'smiles',
-  'mol'
+  'inchi',
+  'pdb'
 ]
 
-LICENSE_ERROR = \
-  "Mol2Export: License not found for charge plugin group. No charges will " + \
-  "be written." + os.linesep
-
-if os.name == 'nt':
-  MOLCONVERT = "S:\\Programs\\MarvinBeans\\bin\\molconvert.bat"
-else:
-  MOLCONVERT = "/usr/local/lib/ChemAxon/MarvinBeans/bin/molconvert"
+OUTPUT_FORMAT = "mol2"
+BABEL = "obabel"
+BABEL_OPTS = "-o%s --gen2d -h" % OUTPUT_FORMAT
+SUCCESS_MSG = "1 molecule converted\n"
 
 logger = logging.getLogger('atompos')
 
@@ -67,7 +64,11 @@ def parse_atoms_bonds(mol2Str):
   
   # Sections: 0 -> header, 1 -> atoms, 2 -> bonds, 3 -> footer
   section = 0
-  for l in mol2Str.split('\n'):
+  for line in mol2Str.split('\n'):
+    l = line.strip()
+    if len(l) == 0:
+      continue
+
     logger.debug("Line: %s" % l)
     if re.search("ATOM", l):
       section = 1
@@ -82,8 +83,8 @@ def parse_atoms_bonds(mol2Str):
     if section == 1:
       parts = re.split("\s+", l)
       # Strip off the atom index
-      element = re.match("[A-Za-z]+", parts[1]).group(0)
-      elementID = re.match(".*([0-9])", parts[1]).group(1)
+      element = re.match("[A-Za-z]+", parts[5]).group(0)
+      elementID = parts[1]
       atoms.append(Atom(
         int(parts[0]),
         element,
@@ -127,52 +128,50 @@ def normalize_positions(atoms):
 
   return atoms
 
-def fix_pdb(data):
-  fixed = ""
-  for line in data.split('\n'):
-    parts = line.split()
-    if len(parts) > 3 and parts[0] == "HETATM" and len(parts[2]) != 3:
-      fix = "%s0%s" % (parts[2][0], parts[2][1])
-      logger.debug("Fixing %s: %s" % (line, fix))
-      fixed += "%s %4s %4s %4s %4s %11s %7s %7s %5s %5s %11s\n" % \
-        (parts[0], parts[1], fix, parts[3], parts[4], parts[5], parts[6], \
-         parts[7], parts[8], parts[9], parts[10])
-    elif len(line) > 0:
-      fixed += line + "\n"
-  return fixed
+def get_positions(data, fmt=None):
+  data = data.strip()
+  if not fmt:
+    first_line = data.split('\n')[0]
+    if re.search("HEADER", first_line):
+      fmt = "pdb"
+    elif re.search("InChI", first_line):
+      fmt = "inchi"
+    elif data.count('\n') == 0:
+      fmt = "smiles"
+    else:
+      raise ValidationError("Could not identify data format")
 
-def get_positions(fmt, data):
-  if data.count('\n') > 1:
-    logger.debug("Assuming PDB")
+    logger.debug("Assumed %s format" % fmt)
 
+  fmt = fmt.lower()
+  if fmt == "pdb":
     with NamedTemporaryFile() as fp:
-      fp.write(fix_pdb(data))
+      fp.write(data)
       fp.seek(0)
 
       p = Popen(
-        "%s -2 mol2 %s" % (MOLCONVERT, fp.name),
+        "%s -ipdb %s %s" % (BABEL, fp.name, BABEL_OPTS),
         shell=True,
         stdout=PIPE,
         stderr=PIPE
       )
 
       out, err = p.communicate()
-      if len(err) > 0 and err != LICENSE_ERROR:
+      if len(err) > 0 and err != SUCCESS_MSG:
         raise ConversionError(err)
 
-    atoms, bonds = parse_atoms_bonds(out)
+    atoms, bonds = parse_atoms_bonds(out.strip())
 
   else:
-    logger.debug("%s mol2 -2 -s \"%s\"" % (MOLCONVERT, data))
     p = Popen(
-      "%s mol2 -2 -s \"%s\"" % (MOLCONVERT, data),
+      "echo \"%s\" | %s -i%s %s" % (data, BABEL, fmt, BABEL_OPTS),
       shell=True,
       stdout=PIPE,
       stderr=PIPE
     )
 
     out, err = p.communicate()
-    if len(err) > 0 and err != LICENSE_ERROR:
+    if len(err) > 0 and err != SUCCESS_MSG:
       raise ConversionError(err)
 
     atoms, bonds = parse_atoms_bonds(out)
@@ -186,7 +185,7 @@ def get_atom_pos(args):
     return {'error': e.message}
 
   # This is safe now, as all have been validated
-  fmt = args.get("fmt").lower()
+  fmt = args.get("fmt")
   data = args.get("data")
 
   if len(data) < 1024:
@@ -195,7 +194,7 @@ def get_atom_pos(args):
       return cachedPos
 
   try:
-    pos = get_positions(fmt, data)
+    pos = get_positions(data, fmt)
   except ConversionError as e:
     return {'error': e.message}
 
@@ -209,7 +208,7 @@ def validate_args(args):
   fmt = args.get("fmt")
   data = args.get("data")
   
-  if not fmt or not fmt.lower() in SUPPORTED_FORMATS:
+  if fmt and not fmt.lower() in SUPPORTED_FORMATS:
     raise ValidationError("Invalid data format")
   elif not data:
     raise ValidationError("Missing molecule data")
