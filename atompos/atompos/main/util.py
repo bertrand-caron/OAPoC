@@ -148,11 +148,25 @@ def parse_atoms_bonds(mol2Str):
       ))
     elif section == 2:
       parts = re.split("\s+", l)
-      try:
-        bondType = int(parts[3])
-      except ValueError:
-        # Use type 4 for aromatic bonds
+
+      t = parts[3]
+      if t == "1":
+        bondType = 1
+      elif t == "2":
+        bondType = 2
+      elif t == "3":
+        bondType = 3
+      elif t == "am":
         bondType = 4
+      elif t == "ar":
+        bondType = 5
+      elif t == "du":
+        bondType = 6
+      elif t == "un":
+        bondType = 7
+      else:
+        bondType = 0
+
       bonds.append(Bond(int(parts[0]), int(parts[1]), int(parts[2]), bondType))
   
   return atoms, bonds
