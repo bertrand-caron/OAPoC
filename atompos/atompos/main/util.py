@@ -21,6 +21,8 @@ SUCCESS_MSG = "1 molecule converted\n"
 
 ATB_PDB_URL = "http://compbio.biosci.uq.edu.au/atb/download.py?outputType=" + \
   "v2Top&file=pdb_allatom_unoptimised&molid="
+ATB_PDB_GEN_URL = "http://compbio.biosci.uq.edu.au/atb/molecule.py?" + \
+  "outputType=top&atbVersion=v2Top&ffVersion=Gromos&molid="
 
 logger = logging.getLogger('atompos')
 
@@ -78,6 +80,13 @@ def load_atb_pdb(molid):
 
   return get_atom_pos({"data": data, "fmt": "pdb"}, molid)
 
+def generate_atb_pdb(molid):
+  url = "%s%s" % (ATB_PDB_GEN_URL, molid)
+  try:
+    urlopen(url).read()
+  except Exception as e:
+    raise ATBLoadError("Could not generate PDB on ATB: %s" % (e.message))
+
 def get_positions_atb(args):
   try:
     validate_args_atb(args)
@@ -93,7 +102,15 @@ def get_positions_atb(args):
 
   try:
     pos = load_atb_pdb(molid)
-  except (ATBLoadError, ConversionError) as e:
+  except ATBLoadError:
+    # Try generating the PDB file first
+    logger.debug("Could not retrieve PDB for %s, trying to generate.." % molid)
+    try:
+      generate_atb_pdb(molid)
+      pos = load_atb_pdb(molid)
+    except (ATBLoadError, ConversionError) as e:
+      return {'error': e.message}
+  except ConversionError as e:
     return {'error': e.message}
 
   return pos
