@@ -224,7 +224,7 @@ def get_positions(data, fmt=None):
     elif data.count('\n') == 0:
       fmt = "smiles"
     else:
-      raise ValidationError("Could not identify data format")
+      raise ConversionError("Could not identify data format")
 
     logger.debug("Assumed %s format" % fmt)
 
