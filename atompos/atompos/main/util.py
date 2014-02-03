@@ -11,7 +11,8 @@ from urllib2 import urlopen, HTTPError
 SUPPORTED_FORMATS = [
   'smiles',
   'inchi',
-  'pdb'
+  'pdb',
+  'atb' # used for ATB IDs
 ]
 
 OUTPUT_FORMAT = "mol2"
@@ -230,21 +231,11 @@ def normalize_positions(atoms):
 
 def get_positions(data, fmt=None):
   data = data.strip()
-  if not fmt:
-    first_line = data.split('\n')[0]
-    if re.search("HEADER", first_line):
-      fmt = "pdb"
-    elif re.search("InChI", first_line):
-      fmt = "inchi"
-    elif data.count('\n') == 0:
-      fmt = "smiles"
-    else:
-      raise ConversionError("Could not identify data format")
-
-    logger.debug("Assumed %s format" % fmt)
-
   fmt = fmt.lower()
-  if fmt == "pdb":
+  if fmt == "atb":
+    return get_positions_atb({"molid": data})
+
+  elif fmt == "pdb":
     with NamedTemporaryFile() as fp:
       fp.write(data)
       fp.seek(0)
@@ -278,6 +269,23 @@ def get_positions(data, fmt=None):
 
   return {'dataStr': data, 'atoms': normalize_positions(atoms), 'bonds': bonds}
 
+def infer_format(data):
+  data = data.strip()
+  first_line = data.split('\n')[0]
+  if re.search("HEADER", first_line):
+    fmt = "pdb"
+  elif re.search("InChI", first_line):
+    fmt = "inchi"
+  elif data.isdigit():
+    fmt = "atb"
+  elif data.count('\n') == 0:
+    fmt = "smiles"
+  else:
+    raise ConversionError("Could not identify data format")
+
+  logger.debug("Inferred %s format" % fmt)
+  return fmt
+
 def get_atom_pos(args, cache_key=None):
   try:
     validate_args(args)
@@ -295,6 +303,8 @@ def get_atom_pos(args, cache_key=None):
       return cachedPos
 
   try:
+    if not fmt:
+      fmt = infer_format(data)
     pos = get_positions(data, fmt)
   except ConversionError as e:
     return {'error': e.message}
