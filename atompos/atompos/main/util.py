@@ -5,7 +5,7 @@ import re
 import socket
 from subprocess import Popen, PIPE
 from tempfile import NamedTemporaryFile
-from urllib2 import urlopen
+from urllib2 import urlopen, HTTPError
 
 # TODO: expand
 SUPPORTED_FORMATS = [
@@ -23,6 +23,7 @@ ATB_PDB_URL = "http://compbio.biosci.uq.edu.au/atb/download.py?outputType=" + \
   "v2Top&file=pdb_allatom_unoptimised&molid="
 ATB_PDB_GEN_URL = "http://compbio.biosci.uq.edu.au/atb/molecule.py?" + \
   "outputType=top&atbVersion=v2Top&ffVersion=Gromos&molid="
+ATB_ERROR_MSG = "Molecule unknown!"
 
 logger = logging.getLogger('atompos')
 
@@ -41,7 +42,7 @@ class Atom(object):
   elementID = 0
   x = 0.
   y = 0.
-  
+
   def __init__(self, id, element, elementID, x, y):
     self.id = id
     self.element = element
@@ -57,7 +58,7 @@ class Bond(object):
   a1 = 0
   a2 = 0
   bondType = 0
-  
+
   def __init__(self, id, a1, a2, bondType):
     self.id = id
     self.a1 = a1
@@ -71,12 +72,26 @@ class Bond(object):
 def load_atb_pdb(molid):
   url = "%s%s" % (ATB_PDB_URL, molid)
   try:
-    data = urlopen(url).read()
+    up = urlopen(url)
+    status = up.getcode()
+    if status != 200:
+      raise ATBLoadError("Server error (status %s)" % status)
+
+    data = up.read()
     first_line = data.split('\n')[0]
     if not re.search("HEADER", first_line):
-      raise ATBLoadError("Invalid PDB file returned")
+      if re.search(ATB_ERROR_MSG, data):
+        raise ATBLoadError("Molecule does not exist")
+      else:
+        raise ATBLoadError("Invalid PDB file returned")
+  except HTTPError as e:
+    if e.code == 404:
+      msg = "Molecule does not exist"
+    else:
+      msg = "Server error: status %s (%s)" % (e.code, e)
+    raise ATBLoadError("Could not retrieve PDB from ATB: %s" % msg)
   except Exception as e:
-    raise ATBLoadError("Could not retrieve PDB from ATB: %s" % (e.message))
+    raise ATBLoadError("Could not retrieve PDB from ATB: %s" % e)
 
   return get_atom_pos({"data": data, "fmt": "pdb"}, molid)
 
@@ -132,7 +147,7 @@ def validate_args_atb(args):
 def parse_atoms_bonds(mol2Str):
   atoms = []
   bonds = []
-  
+
   # Sections: 0 -> header, 1 -> atoms, 2 -> bonds, 3 -> footer
   section = 0
   for line in mol2Str.split('\n'):
@@ -150,7 +165,7 @@ def parse_atoms_bonds(mol2Str):
     elif re.search("SUBSTRUCTURE", l):
       section = 3
       continue
-    
+
     if section == 1:
       parts = re.split("\s+", l)
       # Strip off the atom index
@@ -185,7 +200,7 @@ def parse_atoms_bonds(mol2Str):
         bondType = 0
 
       bonds.append(Bond(int(parts[0]), int(parts[1]), int(parts[2]), bondType))
-  
+
   return atoms, bonds
 
 def normalize_positions(atoms):
@@ -197,16 +212,16 @@ def normalize_positions(atoms):
   ys = map((lambda a: a.y), atoms)
   mx = -min(xs)
   my = -min(ys)
-  
+
   for a in atoms:
     a.x += mx
     a.y += my
-  
+
   # Normalize the coordinates to values between 0 and 1
   xs = map((lambda a: a.x), atoms)
   ys = map((lambda a: a.y), atoms)
   mc = max(xs + ys)
-  
+
   for a in atoms:
     a.x /= mc
     a.y /= mc
@@ -293,10 +308,10 @@ def get_atom_pos(args, cache_key=None):
 def validate_args(args):
   fmt = args.get("fmt")
   data = args.get("data")
-  
+
   if fmt and not fmt.lower() in SUPPORTED_FORMATS:
     raise ValidationError("Invalid data format")
   elif not data:
     raise ValidationError("Missing molecule data")
-  
+
   return True
