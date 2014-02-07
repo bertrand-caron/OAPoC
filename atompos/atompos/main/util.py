@@ -17,7 +17,7 @@ SUPPORTED_FORMATS = [
 
 OUTPUT_FORMAT = "mol2"
 BABEL = "obabel"
-BABEL_OPTS = "-o%s --gen2d -h" % OUTPUT_FORMAT
+BABEL_OPTS = "-o%s --gen2d" % OUTPUT_FORMAT
 SUCCESS_MSG = "1 molecule converted\n"
 
 ATB_PDB_URL = "http://compbio.biosci.uq.edu.au/atb/download.py?outputType=" + \
@@ -255,7 +255,7 @@ def get_positions(data, fmt=None):
 
   else:
     p = Popen(
-      "echo \"%s\" | %s -i%s %s" % (data, BABEL, fmt, BABEL_OPTS),
+      "echo \"%s\" | %s -i%s %s -h" % (data, BABEL, fmt, BABEL_OPTS),
       shell=True,
       stdout=PIPE,
       stderr=PIPE
