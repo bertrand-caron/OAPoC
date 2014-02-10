@@ -21,7 +21,8 @@ BABEL = "obabel"
 BABEL_OPTS = "-o%s --gen2d" % OUTPUT_FORMAT
 SUCCESS_MSG = "1 molecule converted\n"
 
-ATB_DIR = os.path.normpath("%s/../atb_files/" % os.path.dirname(atompos.__file__))
+ATB_DIR = os.path.normpath("%s/../atb_files/" % \
+  os.path.dirname(atompos.__file__))
 ATB_PDB_URL = "http://compbio.biosci.uq.edu.au/atb/download.py?outputType=" + \
   "v2Top&file=pdb_allatom_unoptimised&molid="
 ATB_PDB_GEN_URL = "http://compbio.biosci.uq.edu.au/atb/molecule.py?" + \
@@ -72,13 +73,17 @@ class Bond(object):
     return str(self.__dict__)
 
 
-def load_atb_pdb(molid):
+def load_atb_pdb(molid, store_only=False):
   file = "%s/%s.pdb" % (ATB_DIR, molid)
   if os.path.isfile(file):
-    logger.debug("Loading ATB PDB from file")
     try:
       with open(file, 'r') as fp:
         data = fp.read()
+      if store_only:
+        logger.info("ATB PDB already stored for molid %s" % molid)
+        return
+
+      logger.debug("Loaded ATB PDB from file")
       return get_atom_pos({"data": data, "fmt": "pdb"}, molid)
     except IOError:
       # Should not happen, but is possible when the file is deleted
@@ -111,7 +116,10 @@ def load_atb_pdb(molid):
   with open(file, 'w') as fp:
     fp.write(data)
 
-  return get_atom_pos({"data": data, "fmt": "pdb"}, molid)
+  if store_only:
+    logger.info("Stored ATB PDB for molid %s" % molid)
+  else:
+    return get_atom_pos({"data": data, "fmt": "pdb"}, molid)
 
 def generate_atb_pdb(molid):
   url = "%s%s" % (ATB_PDB_GEN_URL, molid)
