@@ -1,5 +1,6 @@
 from django.core.cache import cache
 import logging
+import atompos
 import os
 import re
 import socket
@@ -20,6 +21,7 @@ BABEL = "obabel"
 BABEL_OPTS = "-o%s --gen2d" % OUTPUT_FORMAT
 SUCCESS_MSG = "1 molecule converted\n"
 
+ATB_DIR = os.path.normpath("%s/../atb_files/" % os.path.dirname(atompos.__file__))
 ATB_PDB_URL = "http://compbio.biosci.uq.edu.au/atb/download.py?outputType=" + \
   "v2Top&file=pdb_allatom_unoptimised&molid="
 ATB_PDB_GEN_URL = "http://compbio.biosci.uq.edu.au/atb/molecule.py?" + \
@@ -71,6 +73,17 @@ class Bond(object):
 
 
 def load_atb_pdb(molid):
+  file = "%s/%s.pdb" % (ATB_DIR, molid)
+  if os.path.isfile(file):
+    logger.debug("Loading ATB PDB from file")
+    try:
+      with open(file, 'r') as fp:
+        data = fp.read()
+      return get_atom_pos({"data": data, "fmt": "pdb"}, molid)
+    except IOError:
+      # Should not happen, but is possible when the file is deleted
+      pass
+
   url = "%s%s" % (ATB_PDB_URL, molid)
   try:
     up = urlopen(url)
@@ -93,6 +106,10 @@ def load_atb_pdb(molid):
     raise ATBLoadError("Could not retrieve PDB from ATB: %s" % msg)
   except Exception as e:
     raise ATBLoadError("Could not retrieve PDB from ATB: %s" % e)
+
+  # Store the retrieved PDB file
+  with open(file, 'w') as fp:
+    fp.write(data)
 
   return get_atom_pos({"data": data, "fmt": "pdb"}, molid)
 

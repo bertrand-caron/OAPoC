@@ -1,4 +1,7 @@
 *.log
+*.log.*
 *.pot
 *.pyc
 local_settings.py
+*.fuse_hidden*
+*.pdb
