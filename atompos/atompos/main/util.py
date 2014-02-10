@@ -1,6 +1,7 @@
-from django.core.cache import cache
-import logging
 import atompos
+from django.core.cache import cache
+import json
+import logging
 import os
 import re
 import socket
@@ -83,8 +84,8 @@ def load_atb_pdb(molid, store_only=False):
         logger.info("ATB PDB already stored for molid %s" % molid)
         return
 
-      logger.debug("Loaded ATB PDB from file")
-      return get_atom_pos({"data": data, "fmt": "pdb"}, molid)
+      logger.debug("Loaded ATB PDB for molid %s from file" % molid)
+      return get_atom_pos_atb(molid, data)
     except IOError:
       # Should not happen, but is possible when the file is deleted
       pass
@@ -119,7 +120,20 @@ def load_atb_pdb(molid, store_only=False):
   if store_only:
     logger.info("Stored ATB PDB for molid %s" % molid)
   else:
-    return get_atom_pos({"data": data, "fmt": "pdb"}, molid)
+    return get_atom_pos_atb(molid, data)
+
+def get_atom_pos_atb(molid, data):
+  pos = get_atom_pos({"data": data, "fmt": "pdb"}, molid)
+
+  if not "error" in pos:
+    pos["dataStr"] = molid
+    # Store the generated OAPoC Position Storage (.ops) file
+    file = "%s/%s.ops" % (ATB_DIR, molid)
+    with open(file, 'w') as fp:
+      fp.write(json.dumps(pos, default=lambda o: o.__dict__))
+    logger.debug("Stored OPS for ATB molid %s" % molid)
+
+  return pos
 
 def generate_atb_pdb(molid):
   url = "%s%s" % (ATB_PDB_GEN_URL, molid)
@@ -137,9 +151,22 @@ def get_positions_atb(args):
   # This is safe now, as all have been validated
   molid = args.get("molid")
 
+  # Check if data occurs in cache
   cachedPos = cache.get(molid)
   if cachedPos:
     return cachedPos
+
+  # Check if data occurs in persistent storage (.ops file)
+  file = "%s/%s.ops" % (ATB_DIR, molid)
+  if os.path.isfile(file):
+    try:
+      with open(file, 'r') as fp:
+        data = fp.read()
+      logger.debug("Loaded positions from OPS file for molid %s" % molid)
+      return json.loads(data)
+    except (IOError, ValueError):
+      # Should not happen, but is possible when the file is deleted
+      pass
 
   try:
     pos = load_atb_pdb(molid)
@@ -181,7 +208,6 @@ def parse_atoms_bonds(mol2Str):
     if len(l) == 0:
       continue
 
-    logger.debug("Line: %s" % l)
     if re.search("ATOM", l):
       section = 1
       continue
