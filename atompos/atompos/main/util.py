@@ -41,37 +41,168 @@ class ConversionError(Exception):
 class ATBLoadError(Exception):
   pass
 
-class Atom(object):
-  id = 0
-  element = ""
-  elementID = 0
-  x = 0.
-  y = 0.
 
-  def __init__(self, id, element, elementID, x, y):
+class Molecule:
+  def __init__(self, dataStr=None, molid=None):
+    self.dataStr = dataStr
+    self.molid = molid
+    self.atoms = []
+    self.bonds = []
+
+  def get_atom(self, id):
+    for atom in self.atoms:
+      if atom.id == id:
+        return atom
+
+  def get_atom_bonds(self, atom, type=None):
+    if type == None:
+      bonds = self.bonds
+    else:
+      bonds = filter(lambda b: b.bondType == type, self.bonds)
+    return filter(lambda b: b.a1 == atom or b.a2 == atom, bonds)
+
+  def add_atom(self, id, element, elementID, x, y):
+    self.atoms.append(Atom(self, id, element, elementID, x, y))
+
+  def add_bond(self, id, a1, a2, bondType):
+    self.bonds.append(Bond(self, id, a1, a2, bondType))
+
+  def normalize_positions(self):
+    if len(self.atoms) == 0:
+      return
+
+    # Shift the top left corner to 0,0
+    xs = map((lambda a: a.x), self.atoms)
+    ys = map((lambda a: a.y), self.atoms)
+    mx = -min(xs)
+    my = -min(ys)
+
+    for a in self.atoms:
+      a.x += mx
+      a.y += my
+
+    # Normalize the coordinates to values between 0 and 1
+    xs = map((lambda a: a.x), self.atoms)
+    ys = map((lambda a: a.y), self.atoms)
+    mc = max(xs + ys)
+
+    for a in self.atoms:
+      a.x /= mc
+      a.y /= mc
+
+  @property
+  def __json__(self):
+    data = {
+      "atoms": map(lambda a: a.__json__, self.atoms),
+      "bonds": map(lambda b: b.__json__, self.bonds)
+    }
+    if self.dataStr:
+      data["dataStr"] = self.dataStr
+    if self.molid:
+      data["molid"] = self.molid
+    return data
+
+class Atom:
+  def __init__(self, molecule, id, element, elementID, x, y):
+    self.molecule = molecule
     self.id = id
     self.element = element
     self.elementID = elementID
     self.x = x
     self.y = y
 
-  def __repr__(self):
-    return str(self.__dict__)
+  @property
+  def iacm(self):
+    bas = self.get_bonded_atoms()
+    if self.element == 'C':
+      bhs = filter(lambda a: a.element == 'H', bas)
+      if len(bas) == 4 and len(bhs) == 0:
+        return 13
+      else:
+        return 12
+    elif self.element == 'H':
+      if bas and bas[0].element == 'C':
+        return 20
+      else:
+        return 21
+    elif self.element == 'O':
+      if len(filter(lambda a: a.element == 'C', bas)) == len(bas) and \
+          len(bas) > 1:
+        return 4
+      elif len(bas) > 1:
+        return 3
+      elif bas and len(filter(lambda a: a.element == 'O' and \
+          len(a.get_bonded_atoms()) == 1, bas[0].get_bonded_atoms())) > 1 and \
+          bas != self.get_bonded_atoms(5):
+        return 2
+      else:
+        return 1
+    elif self.element == 'N':
+      if len(bas) > 3:
+        return 8
+      elif len(bas) == 1:
+        return 9
+      elif len(self.get_bonded_atoms(5)) > 1:
+        return 9
+      elif len(filter(lambda a: a.element == 'H', bas)) < 2:
+        return 6
+      else:
+        return 7
+    elif self.element == 'S':
+      if len(bas) > 2:
+        return 42
+      else:
+        return 23
+    elif self.element == 'P':
+      return 30
+    elif self.element == 'Si':
+      return 31
+    elif self.element == 'F':
+      return 32
+    elif self.element == 'Cl':
+      return 33
+    elif self.element == 'Br':
+      return 34
 
-class Bond(object):
-  id = 0
-  a1 = 0
-  a2 = 0
-  bondType = 0
+    raise UnknownElementError("Encountered element of type %s" % self.element)
 
-  def __init__(self, id, a1, a2, bondType):
+  def get_bonded_atoms(self, type=None):
+    return map(
+      lambda b: b.a2 if b.a1 == self else b.a1,
+      self.molecule.get_atom_bonds(self, type)
+    )
+
+  @property
+  def __json__(self):
+    return {
+      "id": self.id,
+      "element": self.element,
+      "elementID": self.elementID,
+      "iacm": self.iacm,
+      "x": self.x,
+      "y": self.y
+    }
+
+class Bond:
+  def __init__(self, molecule, id, a1, a2, bondType):
+    self.molecule = molecule
     self.id = id
     self.a1 = a1
     self.a2 = a2
     self.bondType = bondType
 
-  def __repr__(self):
-    return str(self.__dict__)
+  @property
+  def is_aromatic(self):
+    return self.bondType == 5
+
+  @property
+  def __json__(self):
+    return {
+      "id": self.id,
+      "a1": self.a1.id,
+      "a2": self.a2.id,
+      "bondType": self.bondType
+    }
 
 
 def load_atb_pdb(molid, store_only=False):
@@ -127,10 +258,11 @@ def get_atom_pos_atb(molid, data):
 
   if not "error" in pos:
     pos["dataStr"] = molid
+    pos["molid"] = molid
     # Store the generated OAPoC Position Storage (.ops) file
     file = "%s/%s.ops" % (ATB_DIR, molid)
     with open(file, 'w') as fp:
-      fp.write(json.dumps(pos, default=lambda o: o.__dict__))
+      fp.write(json.dumps(pos))
     logger.debug("Stored OPS for ATB molid %s" % molid)
 
   return pos
@@ -154,9 +286,7 @@ def get_positions_atb(args):
   # Check if data occurs in cache
   cachedPos = cache.get(molid)
   if cachedPos:
-    pos = cachedPos
-    pos["molid"] = molid
-    return pos
+    return cachedPos
 
   # Check if data occurs in persistent storage (.ops file)
   file = "%s/%s.ops" % (ATB_DIR, molid)
@@ -165,23 +295,19 @@ def get_positions_atb(args):
       with open(file, 'r') as fp:
         data = fp.read()
       logger.debug("Loaded positions from OPS file for molid %s" % molid)
-      pos = json.loads(data)
-      pos["molid"] = molid
-      return pos
+      return json.loads(data)
     except (IOError, ValueError):
       # Should not happen, but is possible when the file is deleted
       pass
 
   try:
     pos = load_atb_pdb(molid)
-    pos["molid"] = molid
   except ATBLoadError:
     # Try generating the PDB file first
     logger.debug("Could not retrieve PDB for %s, trying to generate.." % molid)
     try:
       generate_atb_pdb(molid)
       pos = load_atb_pdb(molid)
-      pos["molid"] = molid
     except (ATBLoadError, ConversionError) as e:
       return {'error': e.message}
   except ConversionError as e:
@@ -203,9 +329,8 @@ def validate_args_atb(args):
   return True
 
 
-def parse_atoms_bonds(mol2Str):
-  atoms = []
-  bonds = []
+def parse_mol2(mol2Str, dataStr=None):
+  molecule = Molecule(dataStr)
 
   # Sections: 0 -> header, 1 -> atoms, 2 -> bonds, 3 -> footer
   section = 0
@@ -229,13 +354,13 @@ def parse_atoms_bonds(mol2Str):
       # Strip off the atom index
       element = re.match("[A-Za-z]+", parts[5]).group(0)
       elementID = parts[1]
-      atoms.append(Atom(
+      molecule.add_atom(
         int(parts[0]),
         element,
         elementID,
         float(parts[2]),
         float(parts[3])
-      ))
+      )
     elif section == 2:
       parts = re.split("\s+", l)
 
@@ -257,34 +382,15 @@ def parse_atoms_bonds(mol2Str):
       else:
         bondType = 0
 
-      bonds.append(Bond(int(parts[0]), int(parts[1]), int(parts[2]), bondType))
+      molecule.add_bond(
+        int(parts[0]),
+        molecule.get_atom(int(parts[1])),
+        molecule.get_atom(int(parts[2])),
+        bondType
+      )
 
-  return atoms, bonds
-
-def normalize_positions(atoms):
-  if len(atoms) == 0:
-    return atoms
-
-  # Shift the top left corner to 0,0
-  xs = map((lambda a: a.x), atoms)
-  ys = map((lambda a: a.y), atoms)
-  mx = -min(xs)
-  my = -min(ys)
-
-  for a in atoms:
-    a.x += mx
-    a.y += my
-
-  # Normalize the coordinates to values between 0 and 1
-  xs = map((lambda a: a.x), atoms)
-  ys = map((lambda a: a.y), atoms)
-  mc = max(xs + ys)
-
-  for a in atoms:
-    a.x /= mc
-    a.y /= mc
-
-  return atoms
+  molecule.normalize_positions()
+  return molecule.__json__
 
 def get_positions(data, fmt=None):
   data = data.strip()
@@ -308,7 +414,7 @@ def get_positions(data, fmt=None):
       if len(err) > 0 and err != SUCCESS_MSG:
         raise ConversionError(err)
 
-    atoms, bonds = parse_atoms_bonds(out.strip())
+    molecule = parse_mol2(out.strip(), data)
 
   else:
     p = Popen(
@@ -322,9 +428,9 @@ def get_positions(data, fmt=None):
     if len(err) > 0 and err != SUCCESS_MSG:
       raise ConversionError(err)
 
-    atoms, bonds = parse_atoms_bonds(out)
+    molecule = parse_mol2(out.strip(), data)
 
-  return {'dataStr': data, 'atoms': normalize_positions(atoms), 'bonds': bonds}
+  return molecule
 
 def infer_format(data):
   data = data.strip()
@@ -373,7 +479,7 @@ def get_atom_pos(args, cache_key=None):
   return pos
 
 def validate_args(args):
-  fmt = args.get("fmt")
+  fmt = args.get("fmt", None)
   data = args.get("data")
 
   if fmt and not fmt.lower() in SUPPORTED_FORMATS:

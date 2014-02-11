@@ -18,9 +18,12 @@ def generate(request):
     params.pop('csrfmiddlewaretoken')
 
   pos = get_atom_pos(params)
-  pos.update({'version': settings.VERSION})
+  res = {
+    "molecule": pos,
+    "version": settings.VERSION
+  }
   return HttpResponse(
-    simplejson.dumps(pos, indent=2, default=(lambda o: o.__dict__)),
+    simplejson.dumps(res, indent=2),
     mimetype="application/json"
   )
 
@@ -34,9 +37,11 @@ def load_atb(request):
     params.pop('csrfmiddlewaretoken')
 
   pos = get_positions_atb(params)
-  pos.update({'version': settings.VERSION})
+  res = {
+    "molecule": pos,
+    "version": settings.VERSION
+  }
   return HttpResponse(
-    simplejson.dumps(pos, indent=2, default=(lambda o: o.__dict__)),
+    simplejson.dumps(res, indent=2),
     mimetype="application/json"
   )
-
