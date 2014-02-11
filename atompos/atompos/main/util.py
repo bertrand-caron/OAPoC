@@ -154,7 +154,9 @@ def get_positions_atb(args):
   # Check if data occurs in cache
   cachedPos = cache.get(molid)
   if cachedPos:
-    return cachedPos
+    pos = cachedPos
+    pos["molid"] = molid
+    return pos
 
   # Check if data occurs in persistent storage (.ops file)
   file = "%s/%s.ops" % (ATB_DIR, molid)
@@ -163,19 +165,23 @@ def get_positions_atb(args):
       with open(file, 'r') as fp:
         data = fp.read()
       logger.debug("Loaded positions from OPS file for molid %s" % molid)
-      return json.loads(data)
+      pos = json.loads(data)
+      pos["molid"] = molid
+      return pos
     except (IOError, ValueError):
       # Should not happen, but is possible when the file is deleted
       pass
 
   try:
     pos = load_atb_pdb(molid)
+    pos["molid"] = molid
   except ATBLoadError:
     # Try generating the PDB file first
     logger.debug("Could not retrieve PDB for %s, trying to generate.." % molid)
     try:
       generate_atb_pdb(molid)
       pos = load_atb_pdb(molid)
+      pos["molid"] = molid
     except (ATBLoadError, ConversionError) as e:
       return {'error': e.message}
   except ConversionError as e:
