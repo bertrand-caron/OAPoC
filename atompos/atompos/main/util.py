@@ -41,6 +41,9 @@ class ConversionError(Exception):
 class ATBLoadError(Exception):
   pass
 
+class UnknownElementError(Exception):
+  pass
+
 
 class Molecule:
   def __init__(self, dataStr=None, molid=None):
@@ -308,9 +311,9 @@ def get_positions_atb(args):
     try:
       generate_atb_pdb(molid)
       pos = load_atb_pdb(molid)
-    except (ATBLoadError, ConversionError) as e:
+    except (ATBLoadError, ConversionError, UnknownElementError) as e:
       return {'error': e.message}
-  except ConversionError as e:
+  except (ConversionError, UnknownElementError) as e:
     return {'error': e.message}
 
   return pos
@@ -469,7 +472,7 @@ def get_atom_pos(args, cache_key=None):
     if not fmt:
       fmt = infer_format(data)
     pos = get_positions(data, fmt)
-  except ConversionError as e:
+  except (ConversionError, UnknownElementError) as e:
     return {'error': e.message}
 
   if len(cache_key) < 1024:
