@@ -24,10 +24,8 @@ SUCCESS_MSG = "1 molecule converted\n"
 
 ATB_DIR = os.path.normpath("%s/../atb_files/" % \
   os.path.dirname(atompos.__file__))
-ATB_PDB_URL = "http://compbio.biosci.uq.edu.au/atb/download.py?outputType=" + \
-  "v2Top&file=pdb_allatom_unoptimised&molid="
-ATB_PDB_GEN_URL = "http://compbio.biosci.uq.edu.au/atb/molecule.py?" + \
-  "outputType=top&atbVersion=v2Top&ffVersion=Gromos&molid="
+ATB_PDB_URL = "http://compbio.biosci.uq.edu.au/atb/download.py?outputType=top&file=pdb_allatom_unoptimised&ffVersion=54A7&molid="
+ATB_PDB_GEN_URL = "http://compbio.biosci.uq.edu.au/atb/outputs_top.py?molid="
 ATB_ERROR_MSG = "Molecule unknown!"
 
 logger = logging.getLogger('atompos')
