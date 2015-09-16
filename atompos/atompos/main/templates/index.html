@@ -13,7 +13,7 @@
 
     <h3>Using manual input</h3>
 
-    <form action="{% url generate %}" method="post">
+    <form action="{% url 'generate' %}" method="post">
       {% csrf_token %}
       <textarea rows="10" cols="50" name="data" placeholder="PDB / InChI / SMILES string"></textarea>
       <br />
@@ -24,7 +24,7 @@
 
     <h3>Using PDB data from the ATB</h3>
 
-    <form action="{% url load_atb %}" method="post">
+    <form action="{% url 'load_atb' %}" method="post">
       {% csrf_token %}
       <input type="text" name="molid" placeholder="ATB molid" />
       <br />
