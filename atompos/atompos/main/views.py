@@ -27,7 +27,7 @@ def _get_positions(request, position_function):
     }
   return HttpResponse(
     simplejson.dumps(res, indent=2),
-    mimetype="application/json"
+    content_type="application/json"
   )
 
 @csrf_exempt
