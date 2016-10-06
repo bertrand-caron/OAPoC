@@ -1,5 +1,5 @@
 test_wsgi:
-	/home/atb/.local/python27/bin/uwsgi --socket :8002 --module atompos.wsgi
+	/usr/local/python27/bin/uwsgi --socket :8002 --module atompos.wsgi
 .PHONY: test_wsgi
 
 first_setup: 
