@@ -8,6 +8,7 @@ import socket
 from subprocess import Popen, PIPE
 from tempfile import NamedTemporaryFile
 from urllib2 import urlopen, HTTPError
+from atb_api import API
 
 # TODO: expand
 SUPPORTED_FORMATS = [
@@ -24,8 +25,11 @@ SUCCESS_MSG = "1 molecule converted\n"
 
 ATB_DIR = os.path.normpath("%s/../atb_files/" % \
   os.path.dirname(atompos.__file__))
-ATB_PDB_URL = "http://compbio.biosci.uq.edu.au/atb/download.py?outputType=top&file=pdb_allatom_unoptimised&ffVersion=54A7&molid="
-ATB_PDB_GEN_URL = "http://compbio.biosci.uq.edu.au/atb/outputs_top.py?molid="
+try:
+    ATB_API_TOKEN = os.environ['ATB_API_TOKEN']
+except KeyError:
+    raise Exception('Please export ATB_API_TOKEN in your environment.')
+ATB_API = API(api_token=ATB_API_TOKEN)
 ATB_ERROR_MSG = "Molecule unknown!"
 
 logger = logging.getLogger('atompos')
@@ -222,14 +226,11 @@ def load_atb_pdb(molid, store_only=False):
       # Should not happen, but is possible when the file is deleted
       pass
 
-  url = "%s%s" % (ATB_PDB_URL, molid)
   try:
-    up = urlopen(url)
-    status = up.getcode()
-    if status != 200:
-      raise ATBLoadError("Server error (status %s)" % status)
-
-    data = up.read()
+    data = ATB_API.Molecules.download_file(
+        molid=molid,
+        atb_format='pdb_allatom_unoptimised',
+    )
     first_line = data.split('\n')[0]
     if not re.search("HEADER", first_line):
       if re.search(ATB_ERROR_MSG, data):
@@ -269,9 +270,8 @@ def get_atom_pos_atb(molid, data):
   return pos
 
 def generate_atb_pdb(molid):
-  url = "%s%s" % (ATB_PDB_GEN_URL, molid)
   try:
-    urlopen(url).read()
+    ATB_API.Molecules.generate_mol_data(molid=molid)
   except Exception as e:
     raise ATBLoadError("Could not generate PDB on ATB: %s" % (e.message))
 
