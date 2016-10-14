@@ -11,3 +11,4 @@ first_setup:
 	pip install sqlite3
 	python manage.py migrate
 	python manage.py runserver
+.PHONY: first_setup
