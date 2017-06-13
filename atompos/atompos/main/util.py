@@ -273,9 +273,9 @@ def generate_atb_pdb(molid):
   try:
     ATB_API.Molecules.generate_mol_data(molid=molid)
   except HTTPError as e:
-    raise ATBLoadError("Could not generate PDB on ATB: {0} ({1})".format(str(e.read()), str(e)))
+    raise ATBLoadError('Could not generate PDB on ATB: (Error was: "{0}")'.format(str(e.read())))
   except Exception as e:
-    raise ATBLoadError("Could not generate PDB on ATB: ({0})".format(str(e)))
+    raise ATBLoadError('Could not generate PDB on ATB: (Error was: "{0}")'.format(str(e)))
 
 def get_positions_atb(args):
   try:
