@@ -8,7 +8,7 @@ import socket
 from subprocess import Popen, PIPE
 from tempfile import NamedTemporaryFile
 from urllib2 import urlopen, HTTPError
-from atb_api import API
+from atb_api import API, HTTPError
 
 # TODO: expand
 SUPPORTED_FORMATS = [
@@ -29,7 +29,7 @@ try:
     ATB_API_TOKEN = os.environ['ATB_API_TOKEN']
 except KeyError:
     raise Exception('Please export ATB_API_TOKEN in your environment.')
-ATB_API = API(api_token=ATB_API_TOKEN)
+ATB_API = API()
 ATB_ERROR_MSG = "Molecule unknown!"
 
 logger = logging.getLogger('atompos')
@@ -272,8 +272,10 @@ def get_atom_pos_atb(molid, data):
 def generate_atb_pdb(molid):
   try:
     ATB_API.Molecules.generate_mol_data(molid=molid)
+  except HTTPError as e:
+    raise ATBLoadError("Could not generate PDB on ATB: {0} ({1})".format(str(e.read()), str(e)))
   except Exception as e:
-    raise ATBLoadError("Could not generate PDB on ATB: %s" % (e.message))
+    raise ATBLoadError("Could not generate PDB on ATB: ({0})".format(str(e)))
 
 def get_positions_atb(args):
   try:
