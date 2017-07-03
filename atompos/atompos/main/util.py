@@ -4,7 +4,6 @@ import json
 import logging
 import os
 import re
-import socket
 from subprocess import Popen, PIPE
 from tempfile import NamedTemporaryFile
 from urllib2 import urlopen, HTTPError
@@ -62,8 +61,8 @@ class Molecule:
       bonds = filter(lambda b: b.bondType == type, self.bonds)
     return filter(lambda b: b.a1 == atom or b.a2 == atom, bonds)
 
-  def add_atom(self, id, element, elementID, x, y):
-    self.atoms.append(Atom(self, id, element, elementID, x, y))
+  def add_atom(self, id, element, elementID, x, y, z):
+    self.atoms.append(Atom(self, id, element, elementID, x, y, z))
 
   def add_bond(self, id, a1, a2, bondType):
     self.bonds.append(Bond(self, id, a1, a2, bondType))
@@ -104,13 +103,14 @@ class Molecule:
     return data
 
 class Atom:
-  def __init__(self, molecule, id, element, elementID, x, y):
+  def __init__(self, molecule, id, element, elementID, x, y, z):
     self.molecule = molecule
     self.id = id
     self.element = element
     self.elementID = elementID
     self.x = x
     self.y = y
+    self.z = z
 
   @property
   def iacm(self):
@@ -181,7 +181,8 @@ class Atom:
       "elementID": self.elementID,
       "iacm": self.iacm,
       "x": self.x,
-      "y": self.y
+      "y": self.y,
+      "z": self.z
     }
 
 class Bond:
@@ -360,7 +361,8 @@ def parse_mol2(mol2Str, dataStr=None):
         element,
         elementID,
         float(parts[2]),
-        float(parts[3])
+        float(parts[3]),
+        float(parts[4])
       )
     elif section == 2:
       parts = re.split("\s+", l)
