@@ -131,6 +131,10 @@ TEMPLATE_DIRS = (
     # Don't forget to use absolute paths, not relative paths.
 )
 
+# Allowed hosts
+
+ALLOWED_HOSTS = ['fragments.atb.uq.edu.au']
+
 INSTALLED_APPS = (
     'django.contrib.auth',
     'django.contrib.contenttypes',
