@@ -1,3 +1,5 @@
+import hashlib
+
 import atompos
 from django.core.cache import cache
 import json
@@ -6,7 +8,6 @@ import os
 import re
 from subprocess import Popen, PIPE
 from tempfile import NamedTemporaryFile
-from urllib2 import urlopen, HTTPError
 from atb_api import API, HTTPError
 
 # TODO: expand
@@ -17,18 +18,18 @@ SUPPORTED_FORMATS = [
   'atb' # used for ATB IDs
 ]
 
+CACHE_TIMEOUT = 60 * 60 * 24 * 365
+
 OUTPUT_FORMAT = "mol2"
 BABEL = "obabel"
 BABEL_OPTS = "-o%s --gen2d" % OUTPUT_FORMAT
 SUCCESS_MSG = "1 molecule converted\n"
 
-ATB_DIR = os.path.normpath("%s/../atb_files/" % \
-  os.path.dirname(atompos.__file__))
 try:
     ATB_API_TOKEN = os.environ['ATB_API_TOKEN']
 except KeyError:
     raise Exception('Please export ATB_API_TOKEN in your environment.')
-ATB_API = API()
+ATB_API = API(api_token=ATB_API_TOKEN)
 ATB_ERROR_MSG = "Molecule unknown!"
 
 logger = logging.getLogger('atompos')
@@ -211,22 +212,24 @@ class Bond:
     }
 
 
-def load_atb_pdb(molid, store_only=False):
-  file = "%s/%s.pdb" % (ATB_DIR, molid)
-  if os.path.isfile(file):
+def generate_or_load_atb_pdb(molid):
+  """Loads a PDB file from the ATB, tries to generate and load a new PDB file if that fails."""
+  try:
+    return load_atb_pdb(molid)
+  except ATBLoadError:
+    # Try generating the PDB file first
+    logger.debug("Could not retrieve PDB for %s, trying to generate.." % molid)
     try:
-      with open(file, 'r') as fp:
-        data = fp.read()
-      if store_only:
-        logger.info("ATB PDB already stored for molid %s" % molid)
-        return
+      generate_atb_pdb(molid)
+      return load_atb_pdb(molid)
+    except (ATBLoadError, ConversionError, UnknownElementError) as e:
+      return {'error': e.message}
+  except (ConversionError, UnknownElementError) as e:
+    return {'error': e.message}
 
-      logger.debug("Loaded ATB PDB for molid %s from file" % molid)
-      return get_atom_pos_atb(molid, data)
-    except IOError:
-      # Should not happen, but is possible when the file is deleted
-      pass
 
+def load_atb_pdb(molid, store_only=False):
+  """Loads a PDB file from the ATB."""
   try:
     data = ATB_API.Molecules.download_file(
         molid=molid,
@@ -247,30 +250,11 @@ def load_atb_pdb(molid, store_only=False):
   except Exception as e:
     raise ATBLoadError("Could not retrieve PDB from ATB: %s" % e)
 
-  # Store the retrieved PDB file
-  with open(file, 'w') as fp:
-    fp.write(data)
+  return get_data(data, "pdb")
 
-  if store_only:
-    logger.info("Stored ATB PDB for molid %s" % molid)
-  else:
-    return get_atom_pos_atb(molid, data)
-
-def get_atom_pos_atb(molid, data):
-  pos = get_atom_pos({"data": data, "fmt": "pdb"}, molid)
-
-  if not "error" in pos:
-    pos["dataStr"] = molid
-    pos["molid"] = molid
-    # Store the generated OAPoC Position Storage (.ops) file
-    file = "%s/%s.ops" % (ATB_DIR, molid)
-    with open(file, 'w') as fp:
-      fp.write(json.dumps(pos))
-    logger.debug("Stored OPS for ATB molid %s" % molid)
-
-  return pos
 
 def generate_atb_pdb(molid):
+  """Generates a PDB file on the ATB."""
   try:
     ATB_API.Molecules.generate_mol_data(molid=molid)
   except HTTPError as e:
@@ -278,62 +262,9 @@ def generate_atb_pdb(molid):
   except Exception as e:
     raise ATBLoadError('Could not generate PDB on ATB: (Error was: "{0}")'.format(str(e)))
 
-def get_positions_atb(args):
-  try:
-    validate_args_atb(args)
-  except ValidationError as e:
-    return {'error': e.message}
-
-  # This is safe now, as all have been validated
-  molid = args.get("molid")
-
-  # Check if data occurs in cache
-  cachedPos = cache.get(molid)
-  if cachedPos:
-    return cachedPos
-
-  # Check if data occurs in persistent storage (.ops file)
-  file = "%s/%s.ops" % (ATB_DIR, molid)
-  if os.path.isfile(file):
-    try:
-      with open(file, 'r') as fp:
-        data = fp.read()
-      logger.debug("Loaded positions from OPS file for molid %s" % molid)
-      return json.loads(data)
-    except (IOError, ValueError):
-      # Should not happen, but is possible when the file is deleted
-      pass
-
-  try:
-    pos = load_atb_pdb(molid)
-  except ATBLoadError:
-    # Try generating the PDB file first
-    logger.debug("Could not retrieve PDB for %s, trying to generate.." % molid)
-    try:
-      generate_atb_pdb(molid)
-      pos = load_atb_pdb(molid)
-    except (ATBLoadError, ConversionError, UnknownElementError) as e:
-      return {'error': e.message}
-  except (ConversionError, UnknownElementError) as e:
-    return {'error': e.message}
-
-  return pos
-
-def validate_args_atb(args):
-  molid = args.get("molid")
-
-  if not molid:
-    raise ValidationError("Missing molecule ID")
-
-  try:
-    int(molid)
-  except ValueError:
-    raise ValidationError("Molecule ID should be numeric")
-
-  return True
-
 
 def parse_mol2(mol2Str, dataStr=None):
+  """Parses the babel output."""
   molecule = Molecule(dataStr)
 
   # Sections: 0 -> header, 1 -> atoms, 2 -> bonds, 3 -> footer
@@ -397,13 +328,13 @@ def parse_mol2(mol2Str, dataStr=None):
   molecule.normalize_positions()
   return molecule.__json__
 
-def get_positions(data, fmt=None):
+
+def get_data(data, fmt=None):
+  """Get the atom data from a string. Translates the string using openbabel."""
   data = data.strip()
   fmt = fmt.lower()
-  if fmt == "atb":
-    return get_positions_atb({"molid": data})
 
-  elif fmt == "pdb":
+  if fmt == "pdb":
     with NamedTemporaryFile() as fp:
       fp.write(data)
       fp.seek(0)
@@ -437,6 +368,7 @@ def get_positions(data, fmt=None):
 
   return molecule
 
+
 def infer_format(data):
   data = data.strip()
   first_line = data.split('\n')[0]
@@ -454,7 +386,45 @@ def infer_format(data):
   logger.debug("Inferred %s format" % fmt)
   return fmt
 
-def get_atom_pos(args, cache_key=None):
+
+def get_atom_data_atb(args):
+  """Returns and caches atom data. Loads the atom data from the ATB."""
+  try:
+    validate_args_atb(args)
+  except ValidationError as e:
+    return {'error': e.message}
+
+  # This is safe now, as all have been validated
+  molid = args.get("molid")
+
+  # Check if data occurs in cache
+  try:
+    hash = ATB_API.Molecules.latest_topology_hash(molid=molid)
+    if hash['status'] == 'success':
+      cache_key = str(molid) + '_' + str(hash['latest_topology_hash'])
+      return cache.get_or_set(cache_key, lambda: generate_or_load_atb_pdb(molid), CACHE_TIMEOUT)
+    else:
+      return {'error': 'Could not find molid %d' % molid}
+  except HTTPError:
+    return {'error': 'Could not find molid %d' % molid}
+
+
+def validate_args_atb(args):
+  molid = args.get("molid")
+
+  if not molid:
+    raise ValidationError("Missing molecule ID")
+
+  try:
+    int(molid)
+  except ValueError:
+    raise ValidationError("Molecule ID should be numeric")
+
+  return True
+
+
+def get_atom_data(args, cache_key=None):
+  """Returns and caches atom data. Depending on the input format, loads the data from the ATB or translates it using openbabel."""
   try:
     validate_args(args)
   except ValidationError as e:
@@ -464,24 +434,17 @@ def get_atom_pos(args, cache_key=None):
   fmt = args.get("fmt")
   data = args.get("data")
 
-  cache_key = cache_key or data
-  if len(cache_key) < 1024:
-    cachedPos = cache.get(cache_key)
-    if cachedPos:
-      return cachedPos
-
   try:
     if not fmt:
       fmt = infer_format(data)
-    pos = get_positions(data, fmt)
+    if fmt.lower() == "atb":
+      return get_atom_data_atb({'molid': data})
+    else:
+      cache_key = cache_key or hashlib.md5(data).hexdigest()
+      return cache.get_or_set(cache_key, lambda: get_data(data, fmt), CACHE_TIMEOUT)
   except (ConversionError, UnknownElementError) as e:
     return {'error': e.message}
 
-  if len(cache_key) < 1024:
-    # Cache for a year (infinitely enough..)
-    cache.set(cache_key, pos, 60 * 60 * 24 * 365)
-
-  return pos
 
 def validate_args(args):
   fmt = args.get("fmt", None)

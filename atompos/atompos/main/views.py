@@ -3,7 +3,7 @@ from django.http import HttpResponse, Http404
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from atompos.main import settings
-from util import get_atom_pos, get_positions_atb
+from util import get_atom_data, get_atom_data_atb
 
 def index(request):
   return render(request, 'index.html')
@@ -32,8 +32,8 @@ def _get_positions(request, position_function):
 
 @csrf_exempt
 def generate(request):
-  return _get_positions(request, get_atom_pos)
+  return _get_positions(request, get_atom_data)
 
 @csrf_exempt
 def load_atb(request):
-  return _get_positions(request, get_positions_atb)
+  return _get_positions(request, get_atom_data_atb)
