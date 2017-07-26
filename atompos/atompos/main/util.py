@@ -22,6 +22,7 @@ CACHE_TIMEOUT = 60 * 60 * 24 * 365
 OUTPUT_FORMAT = "mol2"
 BABEL = "obabel"
 BABEL_OPTS = "-o%s --gen2d" % OUTPUT_FORMAT
+BABEL_OPTS_3D = "-o%s --gen3d" % OUTPUT_FORMAT
 SUCCESS_MSG = "1 molecule converted\n"
 
 try:
@@ -65,8 +66,8 @@ class Molecule:
       bonds = filter(lambda b: b.bondType == type, self.bonds)
     return filter(lambda b: b.a1 == atom or b.a2 == atom, bonds)
 
-  def add_atom(self, id, element, elementID, x, y, z):
-    self.atoms.append(Atom(self, id, element, elementID, x, y, z))
+  def add_atom(self, id, element, elementID, x, y):
+    self.atoms.append(Atom(self, id, element, elementID, x, y))
 
   def add_bond(self, id, a1, a2, bondType):
     self.bonds.append(Bond(self, id, a1, a2, bondType))
@@ -107,14 +108,18 @@ class Molecule:
     return data
 
 class Atom:
-  def __init__(self, molecule, id, element, elementID, x, y, z):
+  def __init__(self, molecule, id, element, elementID, x, y):
     self.molecule = molecule
     self.id = id
     self.element = element
     self.elementID = elementID
     self.x = x
     self.y = y
-    self.z = z
+
+  def set_3d(self, x3d, y3d, z3d):
+    self.x3d = x3d
+    self.y3d = y3d
+    self.z3d = z3d
 
   @property
   def iacm(self):
@@ -186,7 +191,9 @@ class Atom:
       "iacm": self.iacm,
       "x": self.x,
       "y": self.y,
-      "z": self.z
+      "x3d": self.x3d,
+      "y3d": self.y3d,
+      "z3d": self.z3d
     }
 
 class Bond:
@@ -289,7 +296,6 @@ def parse_mol2(mol2Str, dataStr=None):
         elementID,
         float(parts[2]),
         float(parts[3]),
-        float(parts[4])
       )
     elif section == 2:
       parts = re.split("\s+", l)
@@ -320,7 +326,65 @@ def parse_mol2(mol2Str, dataStr=None):
       )
 
   molecule.normalize_positions()
-  return molecule.__json__
+  return molecule
+
+
+def parse_mol2_3d(mol2Str, molecule):
+  """Adds the 3D coodinates from the babel output to the molecule."""
+
+  # Sections: 0 -> header, 1 -> atoms, 2 -> bonds, 3 -> footer
+  section = 0
+  for line in mol2Str.split('\n'):
+    l = line.strip()
+    if len(l) == 0:
+      continue
+
+    if re.search("ATOM", l):
+      section = 1
+      continue
+    elif re.search("BOND", l):
+      section = 2
+      continue
+    elif re.search("SUBSTRUCTURE", l):
+      section = 3
+      continue
+
+    if section == 1:
+      parts = re.split("\s+", l)
+      id = int(parts[0])
+      for atom in molecule.atoms:
+        if atom.id == id:
+          atom.set_3d(
+            float(parts[2]),
+            float(parts[3]),
+            float(parts[4]),
+          )
+
+  return molecule
+
+
+def parse_pdb_3d(mol2Str, molecule):
+  """Adds the 3D coodinates from the pdb data to the molecule."""
+
+  # Sections: 0 -> header, 1 -> atoms, 2 -> bonds, 3 -> footer
+  section = 0
+  for line in mol2Str.split('\n'):
+    l = line.strip()
+    if len(l) == 0:
+      continue
+
+    if re.search("HETATM", l):
+      parts = re.split("\s+", l)
+      elementID = parts[2]
+      for atom in molecule.atoms:
+        if atom.elementID == elementID:
+          atom.set_3d(
+            float(parts[5]),
+            float(parts[6]),
+            float(parts[7]),
+          )
+
+  return molecule
 
 
 def get_data(data, fmt=None):
@@ -328,27 +392,24 @@ def get_data(data, fmt=None):
   data = data.strip()
   fmt = fmt.lower()
 
+  p = Popen(
+    "echo \"%s\" | %s -i%s %s -h" % (data, BABEL, fmt, BABEL_OPTS),
+    shell=True,
+    stdout=PIPE,
+    stderr=PIPE
+  )
+
+  out, err = p.communicate()
+  if len(err) > 0 and err != SUCCESS_MSG:
+    raise ConversionError(err)
+  molecule = parse_mol2(out.strip(), data)
+
   if fmt == "pdb":
-    with NamedTemporaryFile() as fp:
-      fp.write(data)
-      fp.seek(0)
-
-      p = Popen(
-        "%s -ipdb %s %s" % (BABEL, fp.name, BABEL_OPTS),
-        shell=True,
-        stdout=PIPE,
-        stderr=PIPE
-      )
-
-      out, err = p.communicate()
-      if len(err) > 0 and err != SUCCESS_MSG:
-        raise ConversionError(err)
-
-    molecule = parse_mol2(out.strip(), data)
+    molecule = parse_pdb_3d(data, molecule)
 
   else:
     p = Popen(
-      "echo \"%s\" | %s -i%s %s -h" % (data, BABEL, fmt, BABEL_OPTS),
+      "echo \"%s\" | %s -i%s %s -h" % (data, BABEL, fmt, BABEL_OPTS_3D),
       shell=True,
       stdout=PIPE,
       stderr=PIPE
@@ -357,10 +418,9 @@ def get_data(data, fmt=None):
     out, err = p.communicate()
     if len(err) > 0 and err != SUCCESS_MSG:
       raise ConversionError(err)
+    molecule = parse_mol2_3d(out.strip(), molecule)
 
-    molecule = parse_mol2(out.strip(), data)
-
-  return molecule
+  return molecule.__json__
 
 
 def infer_format(data):
