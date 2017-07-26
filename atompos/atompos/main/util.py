@@ -2,7 +2,6 @@ import hashlib
 
 import atompos
 from django.core.cache import cache
-import json
 import logging
 import os
 import re
@@ -219,13 +218,8 @@ def generate_or_load_atb_pdb(molid):
   except ATBLoadError:
     # Try generating the PDB file first
     logger.debug("Could not retrieve PDB for %s, trying to generate.." % molid)
-    try:
-      generate_atb_pdb(molid)
-      return load_atb_pdb(molid)
-    except (ATBLoadError, ConversionError, UnknownElementError) as e:
-      return {'error': e.message}
-  except (ConversionError, UnknownElementError) as e:
-    return {'error': e.message}
+    generate_atb_pdb(molid)
+    return load_atb_pdb(molid)
 
 
 def load_atb_pdb(molid, store_only=False):
@@ -401,8 +395,11 @@ def get_atom_data_atb(args):
   try:
     hash = ATB_API.Molecules.latest_topology_hash(molid=molid)
     if hash['status'] == 'success':
-      cache_key = str(molid) + '_' + str(hash['latest_topology_hash'])
-      return cache.get_or_set(cache_key, lambda: generate_or_load_atb_pdb(molid), CACHE_TIMEOUT)
+      try:
+        cache_key = str(molid) + '_' + str(hash['latest_topology_hash'])
+        return cache.get_or_set(cache_key, lambda: generate_or_load_atb_pdb(molid), CACHE_TIMEOUT)
+      except (ATBLoadError, ConversionError, UnknownElementError) as e:
+        return {'error': e.message}
     else:
       return {'error': 'Could not find molid %d' % molid}
   except HTTPError:
