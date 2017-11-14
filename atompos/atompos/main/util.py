@@ -1,15 +1,24 @@
 import hashlib
+import traceback
+from collections import Counter, defaultdict
+from subprocess import PIPE
+
+import itertools
+
+import signal
+from psutil import Popen
+from rdkit import Chem
+from rdkit.Chem import AllChem
+from timeout_decorator import timeout, TimeoutError
 
 import atompos
 from django.core.cache import cache
 import logging
 import os
 import re
-from subprocess import Popen, PIPE
-from tempfile import NamedTemporaryFile
 from atb_api import API, HTTPError
 
-# TODO: expand
+
 SUPPORTED_FORMATS = [
   'smiles',
   'inchi',
@@ -19,16 +28,23 @@ SUPPORTED_FORMATS = [
 
 CACHE_TIMEOUT = 60 * 60 * 24 * 365
 
-OUTPUT_FORMAT = "mol2"
+TIMEOUT = 60
 BABEL = "obabel"
-BABEL_OPTS = "-o%s --gen2d" % OUTPUT_FORMAT
-BABEL_OPTS_3D = "-o%s --gen3d" % OUTPUT_FORMAT
 SUCCESS_MSG = "1 molecule converted\n"
+
+ELEMENTS_MAP = dict([(1, "O"), (2, "O"), (3, "O"), (4, "O"), (5, "O"), (6, "N"), (7, "N"), (8, "N"), (9, "N"), (10, "N"),
+                     (11, "N"), (12, "C"), (13, "C"), (14, "C"), (15, "C"), (16, "C"), (17, "C"), (18, "C"), (19, "C"),
+                     (20, "H"), (21, "H"), (23, "S"), (24, "Cu"), (25, "Cu"), (26, "Fe"), (27, "Zn"), (28, "Mg"), (29, "Ca"),
+                     (30, "P"), (31, "Ar"), (32, "F"), (33, "Cl"), (34, "Br"), (35, "C"), (36, "O"), (37, "Na"), (38, "Cl"),
+                     (39, "C"), (40, "Cl"), (41, "H"), (42, "S"), (43, "C"), (44, "O"), (45, "C"), (46, "Cl"), (47, "F"),
+                     (48, "C"), (49, "C"), (50, "O"), (51, "C"), (52, "O"), (53, "N"), (54, "C"), (55, "I"), (56, "Cl"),
+                     (57, "B"), (58, "Se"), (59, "H"), (60, "Cl"), (61, "Br")])
 
 try:
     ATB_API_TOKEN = os.environ['ATB_API_TOKEN']
 except KeyError:
     raise Exception('Please export ATB_API_TOKEN in your environment.')
+#ATB_API = API(api_token=ATB_API_TOKEN, host='http://scmb-atb.biosci.uq.edu.au/atb-uqbcaron')
 ATB_API = API(api_token=ATB_API_TOKEN)
 ATB_ERROR_MSG = "Molecule unknown!"
 
@@ -66,8 +82,8 @@ class Molecule:
       bonds = filter(lambda b: b.bondType == type, self.bonds)
     return filter(lambda b: b.a1 == atom or b.a2 == atom, bonds)
 
-  def add_atom(self, id, element, elementID, x, y):
-    self.atoms.append(Atom(self, id, element, elementID, x, y))
+  def add_atom(self, id, iacm, element, elementID, x3d, y3d, z3d):
+    self.atoms.append(Atom(self, id, iacm, element, elementID, x3d, y3d, z3d))
 
   def add_bond(self, id, a1, a2, bondType):
     self.bonds.append(Bond(self, id, a1, a2, bondType))
@@ -107,74 +123,21 @@ class Molecule:
       data["molid"] = self.molid
     return data
 
+
 class Atom:
-  def __init__(self, molecule, id, element, elementID, x, y):
+  def __init__(self, molecule, id, iacm, element, elementID, x3d, y3d, z3d):
     self.molecule = molecule
     self.id = id
+    self.iacm = iacm
     self.element = element
     self.elementID = elementID
-    self.x = x
-    self.y = y
-
-  def set_3d(self, x3d, y3d, z3d):
     self.x3d = x3d
     self.y3d = y3d
     self.z3d = z3d
 
-  @property
-  def iacm(self):
-    bas = self.get_bonded_atoms()
-    if self.element == 'C':
-      bhs = filter(lambda a: a.element == 'H', bas)
-      if len(bas) == 4 and len(bhs) == 0:
-        return 13
-      else:
-        return 12
-    elif self.element == 'H':
-      if bas and bas[0].element == 'C':
-        return 20
-      else:
-        return 21
-    elif self.element == 'O':
-      if len(filter(lambda a: a.element == 'C', bas)) == len(bas) and \
-          len(bas) > 1:
-        return 4
-      elif len(bas) > 1:
-        return 3
-      elif bas and len(filter(lambda a: a.element == 'O' and \
-          len(a.get_bonded_atoms()) == 1, bas[0].get_bonded_atoms())) > 1 and \
-          bas != self.get_bonded_atoms(5):
-        return 2
-      else:
-        return 1
-    elif self.element == 'N':
-      if len(bas) > 3:
-        return 8
-      elif len(bas) == 1:
-        return 9
-      elif len(self.get_bonded_atoms(5)) > 1:
-        return 9
-      elif len(filter(lambda a: a.element == 'H', bas)) < 2:
-        return 6
-      else:
-        return 7
-    elif self.element == 'S':
-      if len(bas) > 2:
-        return 42
-      else:
-        return 23
-    elif self.element == 'P':
-      return 30
-    elif self.element == 'Si':
-      return 31
-    elif self.element == 'F':
-      return 32
-    elif self.element == 'Cl':
-      return 33
-    elif self.element == 'Br':
-      return 34
-
-    raise UnknownElementError("Encountered element of type %s" % self.element)
+  def set_2d(self, x, y):
+    self.x = x
+    self.y = y
 
   def get_bonded_atoms(self, type=None):
     return map(
@@ -218,86 +181,120 @@ class Bond:
     }
 
 
-def generate_or_load_atb_pdb(molid):
-  """Loads a PDB file from the ATB, tries to generate and load a new PDB file if that fails."""
+def get_data_atb(molid):
+  """Loads molecule data from the ATB."""
   try:
-    return load_atb_pdb(molid)
-  except ATBLoadError:
-    # Try generating the PDB file first
-    logger.debug("Could not retrieve PDB for %s, trying to generate.." % molid)
-    generate_atb_pdb(molid)
-    return load_atb_pdb(molid)
-
-
-def load_atb_pdb(molid, store_only=False):
-  """Loads a PDB file from the ATB."""
-  try:
-    data = ATB_API.Molecules.download_file(
-        molid=molid,
-        atb_format='pdb_allatom_unoptimised',
-    )
-    first_line = data.split('\n')[0]
-    if not re.search("HEADER", first_line):
-      if re.search(ATB_ERROR_MSG, data):
-        raise ATBLoadError("Molecule does not exist")
-      else:
-        raise ATBLoadError("Invalid PDB file returned")
+    lgf = ATB_API.Molecules.download_file(molid=molid, atb_format='lgf')
   except HTTPError as e:
     if e.code == 404:
       msg = "Molecule does not exist"
     else:
       msg = "Server error: status %s (%s)" % (e.code, e)
-    raise ATBLoadError("Could not retrieve PDB from ATB: %s" % msg)
+    raise ATBLoadError("Could not retrieve LGF from ATB: %s" % msg)
   except Exception as e:
-    raise ATBLoadError("Could not retrieve PDB from ATB: %s" % e)
+    raise ATBLoadError("Could not retrieve LGF from ATB: %s" % e)
 
-  return get_data(data, "pdb")
-
-
-def generate_atb_pdb(molid):
-  """Generates a PDB file on the ATB."""
   try:
-    ATB_API.Molecules.generate_mol_data(molid=molid)
-  except HTTPError as e:
-    raise ATBLoadError('Could not generate PDB on ATB: (Error was: "{0}")'.format(str(e.read())))
-  except Exception as e:
-    raise ATBLoadError('Could not generate PDB on ATB: (Error was: "{0}")'.format(str(e)))
+    molecule = Molecule(molid)
+    parse_lgf(lgf, molecule)
+
+    return molecule.__json__
+  except:
+    raise ConversionError("Invalid data format")
 
 
-def parse_mol2(mol2Str, dataStr=None):
-  """Parses the babel output."""
-  molecule = Molecule(dataStr)
+def parse_lgf(lgf, molecule):
+  """Parses an lgf file to generate a molecule."""
+  nodes = False
+  edges = False
+  node_columns = {}
+  rdmol = Chem.RWMol(Chem.Mol())
+  mol_2_rd = {}
+  rd_2_mol = {}
 
-  # Sections: 0 -> header, 1 -> atoms, 2 -> bonds, 3 -> footer
-  section = 0
+  # parse lgf
+  # add atoms to molecule
+  # add atoms and bonds to rdkit molecule
+  for line in lgf.splitlines():
+    if '@nodes' in line:
+      nodes = True
+      edges = False
+      continue
+    if '@edges' in line:
+      nodes = False
+      edges = True
+      continue
+    if nodes:
+      if len(node_columns) == 0:
+        split = line.split()
+        if not 'label' in split or not 'atomType' in split \
+            or not 'coordX' in split or not 'coordY' in split or not 'coordZ' in split:
+          continue
+        node_columns['label'] = split.index('label')
+        node_columns['label2'] = split.index('label2')
+        node_columns['atomType'] = split.index('atomType')
+        node_columns['coordX'] = split.index('coordX')
+        node_columns['coordY'] = split.index('coordY')
+        node_columns['coordZ'] = split.index('coordZ')
+
+      else:
+        split = line.split()
+        id = int(split[node_columns['label']])
+        iacm = int(split[node_columns['atomType']])
+        element = ELEMENTS_MAP[iacm]
+
+        molecule.add_atom(id,
+                          iacm,
+                          element,
+                          split[node_columns['label2']],
+                          float(split[node_columns['coordX']]),
+                          float(split[node_columns['coordY']]),
+                          float(split[node_columns['coordZ']]))
+
+        atom = Chem.Atom(element)
+        atom.SetNoImplicit(True)
+        rd_id = rdmol.AddAtom(atom)
+        mol_2_rd[id] = rd_id
+        rd_2_mol[rd_id] = id
+
+    if edges:
+      if not 'label' in line:
+        split = line.split()
+        rdmol.AddBond(mol_2_rd[int(split[0])], mol_2_rd[int(split[1])], Chem.BondType.SINGLE)
+
+  # compute 2D coordinates using rdkit
+  AllChem.Compute2DCoords(rdmol)
+  conf2d = rdmol.GetConformer()
+
+  for atom in rdmol.GetAtoms():
+    v = atom.GetIdx()
+    pos2d = conf2d.GetAtomPosition(v)
+    molecule.get_atom(rd_2_mol[v]).set_2d(pos2d.x, pos2d.y)
+
+  molecule.normalize_positions()
+
+  # translate rdkit molecule to pdb
+  Chem.SanitizeMol(rdmol, sanitizeOps=Chem.SANITIZE_SETHYBRIDIZATION)
+
+  pdb = Chem.MolToPDBBlock(rdmol)
+  # use obabel to infer bond types
+  parse_mol2(call_babel(pdb, "pdb", "mol2", add_h=False), molecule)
+
+
+def parse_mol2(mol2Str, molecule):
+  """Parses the babel output to get bonds and bond types."""
+
+  bonds = False
   for line in mol2Str.split('\n'):
     l = line.strip()
     if len(l) == 0:
       continue
 
-    if re.search("ATOM", l):
-      section = 1
-      continue
-    elif re.search("BOND", l):
-      section = 2
-      continue
-    elif re.search("SUBSTRUCTURE", l):
-      section = 3
+    if re.search("BOND", l):
+      bonds = True
       continue
 
-    if section == 1:
-      parts = re.split("\s+", l)
-      # Strip off the atom index
-      element = re.match("[A-Za-z]+", parts[5]).group(0)
-      elementID = parts[1]
-      molecule.add_atom(
-        int(parts[0]),
-        element,
-        elementID,
-        float(parts[2]),
-        float(parts[3]),
-      )
-    elif section == 2:
+    if bonds:
       parts = re.split("\s+", l)
 
       t = parts[3]
@@ -318,109 +315,144 @@ def parse_mol2(mol2Str, dataStr=None):
       else:
         bondType = 0
 
-      molecule.add_bond(
-        int(parts[0]),
-        molecule.get_atom(int(parts[1])),
-        molecule.get_atom(int(parts[2])),
-        bondType
-      )
+      a1 = molecule.get_atom(int(parts[1]))
+      a2 = molecule.get_atom(int(parts[2]))
 
-  molecule.normalize_positions()
-  return molecule
-
-
-def parse_mol2_3d(mol2Str, molecule):
-  """Adds the 3D coodinates from the babel output to the molecule."""
-
-  # Sections: 0 -> header, 1 -> atoms, 2 -> bonds, 3 -> footer
-  section = 0
-  for line in mol2Str.split('\n'):
-    l = line.strip()
-    if len(l) == 0:
-      continue
-
-    if re.search("ATOM", l):
-      section = 1
-      continue
-    elif re.search("BOND", l):
-      section = 2
-      continue
-    elif re.search("SUBSTRUCTURE", l):
-      section = 3
-      continue
-
-    if section == 1:
-      parts = re.split("\s+", l)
-      id = int(parts[0])
-      for atom in molecule.atoms:
-        if atom.id == id:
-          atom.set_3d(
-            float(parts[2]),
-            float(parts[3]),
-            float(parts[4]),
-          )
-
-  return molecule
+      if a1 and a2:
+        molecule.add_bond(
+          int(parts[0]),
+          molecule.get_atom(int(parts[1])),
+          molecule.get_atom(int(parts[2])),
+          bondType)
 
 
-def parse_pdb_3d(mol2Str, molecule):
-  """Adds the 3D coodinates from the pdb data to the molecule."""
+def rename_atoms(pdb):
+  counts = defaultdict(int)
+  def replace(line):
+    if 'HETATM' in line:
+      name = line[13:17].strip()
+      line = line[:13] + '%-4s' % ('%s%d' % (name, counts[name])) + line[17:]
+      counts[name] += 1
+    return line
 
-  # Sections: 0 -> header, 1 -> atoms, 2 -> bonds, 3 -> footer
-  section = 0
-  for line in mol2Str.split('\n'):
-    l = line.strip()
-    if len(l) == 0:
-      continue
-
-    if re.search("HETATM", l):
-      parts = re.split("\s+", l)
-      elementID = parts[2]
-      for atom in molecule.atoms:
-        if atom.elementID == elementID:
-          atom.set_3d(
-            float(parts[5]),
-            float(parts[6]),
-            float(parts[7]),
-          )
-
-  return molecule
+  return '\n'.join(itertools.imap(replace, pdb.split('\n')))
 
 
-def get_data(data, fmt=None):
-  """Get the atom data from a string. Translates the string using openbabel."""
-  data = data.strip()
-  fmt = fmt.lower()
+def call_babel(data, ifmt, ofmt, gen3d=False, add_h=True, timelimit=TIMEOUT):
+  """Calls obabel."""
+
+  if not gen3d:
+    cmd = "echo \"%s\" | %s -i%s -o%s%s" % (data, BABEL, ifmt, ofmt, ' -h' if add_h else '')
+  else:
+    cmd = "echo \"%s\" | %s -i%s -o%s%s --gen3d" % (data, BABEL, ifmt, ofmt, ' -h' if add_h else '')
 
   p = Popen(
-    "echo \"%s\" | %s -i%s %s -h" % (data, BABEL, fmt, BABEL_OPTS),
+    cmd,
     shell=True,
     stdout=PIPE,
-    stderr=PIPE
+    stderr=PIPE,
+    preexec_fn=os.setsid
   )
 
-  out, err = p.communicate()
+  @timeout(seconds=timelimit, use_signals=False)
+  def comm(p):
+    return p.communicate()
+
+  try:
+    out, err = comm(p)
+  except TimeoutError as e:
+    os.killpg(os.getpgid(p.pid), signal.SIGTERM)
+    raise ConversionError(e)
+
   if len(err) > 0 and err != SUCCESS_MSG:
     raise ConversionError(err)
-  molecule = parse_mol2(out.strip(), data)
+  return out.strip()
 
-  if fmt == "pdb":
-    molecule = parse_pdb_3d(data, molecule)
 
-  else:
-    p = Popen(
-      "echo \"%s\" | %s -i%s %s -h" % (data, BABEL, fmt, BABEL_OPTS_3D),
-      shell=True,
-      stdout=PIPE,
-      stderr=PIPE
-    )
+def check_atom_pos(rdmol):
+  conf = rdmol.GetConformer()
+  def get_pos(i):
+    pos = conf.GetAtomPosition(i)
+    return (pos.x, pos.y, pos.z)
 
-    out, err = p.communicate()
-    if len(err) > 0 and err != SUCCESS_MSG:
-      raise ConversionError(err)
-    molecule = parse_mol2_3d(out.strip(), molecule)
+  if any(itertools.imap(lambda c: c[1] > 1,
+                        Counter([get_pos(i) for i in xrange(rdmol.GetNumAtoms())]).iteritems())):
+    raise ValueError()
 
-  return molecule.__json__
+def get_data(data, fmt=None):
+  """Get the atom data from a string. Translates the string using obabel,
+  the ATB lgf generator and rdkit."""
+  data = str(data.strip())
+  fmt = fmt.lower()
+
+  try:
+    # read input data, translate to pdb with obabel
+    if fmt == "inchi":
+      pdb = call_babel(data, "inchi", "pdb")
+    elif fmt == "smiles":
+      pdb = call_babel(data, "smiles", "pdb")
+    else:
+      pdb = call_babel(data, "pdb", "pdb")
+
+    # translate to rdkit molecule
+    rdmol = Chem.MolFromPDBBlock(pdb, removeHs=False, sanitize=False)
+
+  except:
+    raise ConversionError("Invalid data format")
+
+  # generate 3D coordinates with rdkit
+  # translate back to pdb
+  try:
+    # raise error if two atoms have the same coordinates
+    check_atom_pos(rdmol)
+    pdb = rename_atoms(Chem.MolToPDBBlock(rdmol))
+  except:
+
+    @timeout(seconds=TIMEOUT, use_signals=False)
+    def gen3drdkit(rdmol, useRandomCoords):
+      AllChem.EmbedMolecule(rdmol, useRandomCoords=useRandomCoords)
+      AllChem.MMFFSanitizeMolecule(rdmol)
+      AllChem.MMFFOptimizeMolecule(rdmol)
+      check_atom_pos(rdmol)
+      return rename_atoms(Chem.MolToPDBBlock(rdmol))
+
+    try:
+      # generate 3D coordinates with RDKIT and eigenvalues start
+      pdb = gen3drdkit(rdmol, False)
+    except:
+      try:
+        # generate 3D coordinates with RDKIT and random start
+        pdb = gen3drdkit(rdmol, True)
+      except:
+        # rdkit failed to generate 3D coordinates, try obabel
+        try:
+          pdb = call_babel(pdb, "pdb", "pdb", gen3d=True, add_h=False)
+          rdmol = Chem.MolFromPDBBlock(pdb, removeHs=False, sanitize=False)
+          check_atom_pos(rdmol)
+          pdb = rename_atoms(pdb)
+        except:
+          raise ConversionError("Could not generate 3D coordinates")
+
+  # generate lgf with IACM elements using the ATB
+  try:
+    ret = ATB_API.Molecules.lgf(pdb=pdb)
+    if not ret or not isinstance(ret, dict):
+      raise ATBLoadError('Internal Server Error')
+    lgf = ret['lgf']
+  except HTTPError as e:
+    msg = "Server error: status %s (%s)" % (e.code, e)
+    raise ATBLoadError("Could not retrieve LGF from ATB: %s" % msg)
+  except Exception as e:
+    raise ATBLoadError("Could not retrieve LGF from ATB: %s" % e)
+
+  try:
+    molecule = Molecule(data)
+    parse_lgf(lgf, molecule)
+
+    return molecule.__json__
+  except:
+    traceback.print_exc()
+    raise ConversionError("Invalid data format")
 
 
 def infer_format(data):
@@ -435,7 +467,7 @@ def infer_format(data):
   elif data.count('\n') == 0:
     fmt = "smiles"
   else:
-    raise ConversionError("Could not identify data format")
+    fmt = "pdb"
 
   logger.debug("Inferred %s format" % fmt)
   return fmt
@@ -457,7 +489,7 @@ def get_atom_data_atb(args):
     if hash['status'] == 'success':
       try:
         cache_key = str(molid) + '_' + str(hash['latest_topology_hash'])
-        return cache.get_or_set(cache_key, lambda: generate_or_load_atb_pdb(molid), CACHE_TIMEOUT)
+        return cache.get_or_set(cache_key, lambda: get_data_atb(molid), CACHE_TIMEOUT)
       except (ATBLoadError, ConversionError, UnknownElementError) as e:
         return {'error': e.message}
     else:
@@ -499,7 +531,7 @@ def get_atom_data(args, cache_key=None):
     else:
       cache_key = cache_key or hashlib.md5(data).hexdigest()
       return cache.get_or_set(cache_key, lambda: get_data(data, fmt), CACHE_TIMEOUT)
-  except (ConversionError, UnknownElementError) as e:
+  except (ConversionError, UnknownElementError, ATBLoadError) as e:
     return {'error': e.message}
 
 
