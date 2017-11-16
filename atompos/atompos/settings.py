@@ -10,7 +10,7 @@ SITE_ROOT = os.path.dirname(os.path.realpath(__file__))
 
 # Django settings for atompos project.
 
-DEBUG = False
+DEBUG = True
 TEMPLATE_DEBUG = DEBUG
 
 ADMINS = (
@@ -95,7 +95,7 @@ STATICFILES_FINDERS = (
 )
 
 # Make this unique, and don't share it with anybody.
-KEY_DIR = '/home/atb/secret_keys'
+KEY_DIR = '/home/martin/secret_keys'
 
 with open(os.path.join(KEY_DIR, 'django_secret.txt')) as f:
     SECRET_KEY = f.read().strip()
