@@ -1,10 +1,6 @@
 from itertools import groupby
 from operator import itemgetter
 
-from typing import Optional, Tuple, NamedTuple
-
-Coordinate = Tuple[float, float, float]
-
 S = ('>', '')
 CHARGE = ('<', '')
 F = ('', '.3f')
@@ -101,16 +97,14 @@ PDB_ATOM_RECORDS = ('ATOM  ', 'HETATM')
 
 PDB_CONNECT_RECORDS = ('CONECT',)
 
-PDB_Atom = NamedTuple(
-    'PDB_Atom',
-    [
-        ('index', int),
-        ('name', str),
-        ('coordinates', Tuple[float, float, float]),
-        ('element', str),
-        ('charge', Optional[int]),
-    ]
-)
+class PDB_Atom:
+
+    def __init__(self, index, name, coordinates, element, charge=None):
+        self.index = index
+        self.name = name
+        self.coordinates = coordinates
+        self.element = element
+        self.charge = charge
 
 assert list(map(len, PDB_ATOM_RECORDS)) == list(map(len, [ PDB_ATOM_RECORDS[0] ]*len(PDB_ATOM_RECORDS))), '{0} != {1}'.format(list(map(len, PDB_ATOM_RECORDS)), list(map(len, [ PDB_ATOM_RECORDS[0] ]*len(PDB_ATOM_RECORDS))))
 

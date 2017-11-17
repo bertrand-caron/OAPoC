@@ -95,7 +95,7 @@ STATICFILES_FINDERS = (
 )
 
 # Make this unique, and don't share it with anybody.
-KEY_DIR = '/home/martin/secret_keys'
+KEY_DIR = '/home/atb/secret_keys'
 
 with open(os.path.join(KEY_DIR, 'django_secret.txt')) as f:
     SECRET_KEY = f.read().strip()
