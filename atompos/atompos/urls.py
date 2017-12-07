@@ -24,4 +24,5 @@ urlpatterns = [
     url(relative_url(r'$'), views.index, name='index'),
     url(relative_url(r'generate/'), views.generate, name='generate'),
     url(relative_url(r'load/'), views.load, name='load'),
+    url(relative_url(r'loadATB/'), views.load, name='load'),
 ]
