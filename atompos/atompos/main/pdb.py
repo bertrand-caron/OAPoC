@@ -1,3 +1,8 @@
+#
+# ported from https://github.com/bertrand-caron/chemistry_helpers
+#
+
+
 from itertools import groupby
 from operator import itemgetter
 
