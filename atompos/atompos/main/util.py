@@ -242,7 +242,7 @@ class Molecule:
     try:
       # compute 2D coordinates and infer bond types using obabel
       self.parse_mol2(call_babel(pdb, "pdb", "mol2", gen2d=True, add_h=False))
-    except TimeoutError:
+    except:
 
       @timeout(seconds=RDKIT_TIMEOUT, use_signals=False)
       def comp_rdkit():
