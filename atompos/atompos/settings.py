@@ -17,6 +17,14 @@ ADMINS = (
     # ('Your Name', 'your_email@example.com'),
 )
 
+# OAPOC settings
+
+CACHE_TIMEOUT = 60 * 60 * 24 * 365
+OBABEL_TIMEOUT = 10
+RDKIT_TIMEOUT = 120
+REQUEST_TIMEOUT = 45
+REQUEST_URL = 'http://fragments.atb.uq.edu.au/fdb/fragments/molecules/'
+
 MANAGERS = ADMINS
 
 DATABASES = {

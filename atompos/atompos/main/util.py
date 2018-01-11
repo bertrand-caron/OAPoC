@@ -19,6 +19,7 @@ from rdkit.Chem import AllChem
 from timeout_decorator import timeout, TimeoutError
 
 from atompos.main.pdb import PDB_Atom, str_for_pdb_atom, pdb_conect_line, is_pdb_atom_line, get_attribute_from_pdb_line, get_coords_from_pdbline, is_pdb_connect_line
+from atompos.settings import RDKIT_TIMEOUT, REQUEST_URL, REQUEST_TIMEOUT, CACHE_TIMEOUT, OBABEL_TIMEOUT
 
 SUPPORTED_FORMATS = [
   'smiles',
@@ -26,12 +27,6 @@ SUPPORTED_FORMATS = [
   'pdb',
   'atb' # used for ATB IDs
 ]
-
-CACHE_TIMEOUT = 60 * 60 * 24 * 365
-OBABEL_TIMEOUT = 10
-RDKIT_TIMEOUT = 120
-REQUEST_TIMEOUT = 45
-REQUEST_URL = 'http://fragments.atb.uq.edu.au/fdb/fragments/molecules/'
 
 BABEL = "obabel"
 SUCCESS_MSG = "1 molecule converted\n"
@@ -631,7 +626,7 @@ def get_atom_data_fdb(args):
     hash = json.loads(r.content)
     if 'status' in hash and hash['status'] == 'success' and 'hash' in hash:
       try:
-        cache_key = str(molid) + '_' + str(hash['hash'])
+        cache_key = 'oapoc_fdb_' + str(molid) + '_' + str(hash['hash'])
         return cache.get_or_set(cache_key, lambda: get_data_fdb(molid), CACHE_TIMEOUT)
       except (LoadError, ConversionError, UnknownElementError) as e:
         return {'error': e.message}
@@ -656,7 +651,7 @@ def get_atom_data_atb(args):
     hash = ATB_API.Molecules.latest_topology_hash(molid=molid)
     if hash['status'] == 'success':
       try:
-        cache_key = str(molid) + '_' + str(hash['latest_topology_hash'])
+        cache_key = 'oapoc_atb_' + str(molid) + '_' + str(hash['latest_topology_hash'])
         return cache.get_or_set(cache_key, lambda: get_data_atb(molid), CACHE_TIMEOUT)
       except (LoadError, ConversionError, UnknownElementError) as e:
         return {'error': e.message}
@@ -697,7 +692,7 @@ def get_atom_data(args, cache_key=None):
     if fmt.lower() == "atb":
       return get_atom_data_atb({'molid': data})
     else:
-      cache_key = cache_key or hashlib.md5(data).hexdigest()
+      cache_key = cache_key or 'oapoc_data_' + hashlib.md5(data).hexdigest()
       return cache.get_or_set(cache_key, lambda: get_data(data, fmt), CACHE_TIMEOUT)
   except (ConversionError, UnknownElementError, LoadError) as e:
     return {'error': e.message}

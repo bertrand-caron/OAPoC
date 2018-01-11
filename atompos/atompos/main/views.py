@@ -1,9 +1,11 @@
 import json as simplejson
+
 from django.http import HttpResponse, Http404
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
+
 from atompos.main import settings
-from util import get_atom_data, get_atom_data_atb, get_atom_data_fdb
+from util import get_atom_data, get_atom_data_fdb
 
 
 def index(request):
