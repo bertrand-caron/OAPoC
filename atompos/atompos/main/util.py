@@ -21,6 +21,8 @@ from timeout_decorator import timeout, TimeoutError
 from atompos.main.pdb import PDB_Atom, str_for_pdb_atom, pdb_conect_line, is_pdb_atom_line, get_attribute_from_pdb_line, get_coords_from_pdbline, is_pdb_connect_line
 from atompos.settings import RDKIT_TIMEOUT, REQUEST_URL, REQUEST_TIMEOUT, CACHE_TIMEOUT, OBABEL_TIMEOUT
 
+VERBOSE_FAILURE = True
+
 SUPPORTED_FORMATS = [
   'smiles',
   'inchi',
@@ -484,8 +486,9 @@ def get_data_atb(molid):
     molecule.compute_2d_coordinates()
 
     return molecule.__json__
-  except:
-    raise ConversionError("Invalid data format")
+  except Exception, e:
+    traceback.print_exc()
+    raise ConversionError('Invalid data format (exception="{0}")'.format(str(e)))
 
 
 def get_data_fdb(molid):
@@ -585,9 +588,9 @@ def get_data(data, fmt=None):
     return molecule.__json__
   except TimeoutError:
     raise ConversionError("Timeout")
-  except:
+  except Exception, e:
     traceback.print_exc()
-    raise ConversionError("Invalid data format")
+    raise ConversionError('Invalid data format (exception="{0}")'.format(str(e)))
 
 
 def infer_format(data):
@@ -708,3 +711,6 @@ def validate_args(args):
     raise ValidationError("Missing molecule data")
 
   return True
+
+if __name__ == '__main__':
+    print get_data_atb(298300)
