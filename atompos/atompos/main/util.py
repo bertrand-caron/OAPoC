@@ -8,6 +8,7 @@ import signal
 import traceback
 from collections import Counter, defaultdict
 from subprocess import PIPE
+from sys import stderr
 
 import requests
 from atb_api import API, HTTPError
@@ -329,7 +330,16 @@ class Molecule:
         a2 = self.get_atom(id_2_el[parts[2]])
 
         if a1 and a2:
-          self.get_bond(a1, a2).bondType = bondType
+          maybe_bond = self.get_bond(a1, a2)
+          if maybe_bond is None:
+            msg = 'OpenBabel found additional bond: {0}'.format(set([a1.id, a2.id]))
+            if False:
+              raise Exception(msg)
+            else:
+              stderr.write(msg + '\n')
+              stderr.write(' '.join(map(str, [a1, a2])) + '\n')
+          else:
+            maybe_bond.bondType = bondType
 
   def infer_iacm(self):
     for atom in self.atoms:
@@ -346,6 +356,14 @@ class Atom:
     self.x3d = x3d
     self.y3d = y3d
     self.z3d = z3d
+
+  def __str__(self):
+    return 'Atom(id={id}, iacm={iacm}, element={element}, elementID={elementID})'.format(
+      id=self.id,
+      iacm=self.iacm,
+      element=self.element,
+      elementID=self.elementID,
+    )
 
   def set_2d(self, x, y):
     self.x = x
