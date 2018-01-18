@@ -652,9 +652,9 @@ def get_atom_data_fdb(args):
       except (LoadError, ConversionError, UnknownElementError) as e:
         return {'error': e.message}
     else:
-      return {'error': 'Could not find molid %d' % molid}
+      return {'error': 'Could not find molid %d' % molid, 'traceback': None}
   except:
-    return {'error': 'Could not find molid %d' % molid}
+    return {'error': 'Could not find molid %d' % molid , 'traceback': traceback.format_exc()}
 
 
 def get_atom_data_atb(args):
