@@ -564,7 +564,8 @@ def call_babel(data, ifmt, ofmt, gen2d=False, add_h=True, timelimit=OBABEL_TIMEO
     shell=True,
     stdout=PIPE,
     stderr=PIPE,
-    preexec_fn=os.setsid
+    preexec_fn=os.setsid,
+    env=custom_env
   )
 
   @timeout(seconds=timelimit, use_signals=False)
