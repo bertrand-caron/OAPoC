@@ -25,6 +25,9 @@ RDKIT_TIMEOUT = 120
 REQUEST_TIMEOUT = 45
 REQUEST_URL = 'http://fragments.atb.uq.edu.au/fdb/fragments/molecules/'
 
+BABEL = '/home/atb/FRAGMENTS/openbabel/build/bin/babel'
+BABEL_LIBDIR = '/home/atb/FRAGMENTS/openbabel/build/lib'
+
 MANAGERS = ADMINS
 
 DATABASES = {

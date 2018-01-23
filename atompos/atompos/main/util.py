@@ -6,21 +6,23 @@ import os
 import re
 import signal
 import traceback
+from cStringIO import StringIO
 from collections import Counter, defaultdict
 from subprocess import PIPE
 from sys import stderr
 
 import requests
 from atb_api import API, HTTPError
-from cStringIO import StringIO
 from django.core.cache import cache
 from psutil import Popen
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from timeout_decorator import timeout, TimeoutError
 
-from atompos.main.pdb import PDB_Atom, str_for_pdb_atom, pdb_conect_line, is_pdb_atom_line, get_attribute_from_pdb_line, get_coords_from_pdbline, is_pdb_connect_line
-from atompos.settings import RDKIT_TIMEOUT, REQUEST_URL, REQUEST_TIMEOUT, CACHE_TIMEOUT, OBABEL_TIMEOUT
+from atompos.main.pdb import PDB_Atom, str_for_pdb_atom, pdb_conect_line, is_pdb_atom_line, get_attribute_from_pdb_line, \
+  get_coords_from_pdbline, is_pdb_connect_line
+from atompos.settings import RDKIT_TIMEOUT, REQUEST_URL, REQUEST_TIMEOUT, CACHE_TIMEOUT, OBABEL_TIMEOUT, BABEL_LIBDIR, \
+  BABEL
 
 VERBOSE_FAILURE = True
 
@@ -31,7 +33,6 @@ SUPPORTED_FORMATS = [
   'atb' # used for ATB IDs
 ]
 
-BABEL = "obabel"
 SUCCESS_MSG = "1 molecule converted\n"
 
 ELEMENTS_MAP = dict([(1, "O"), (2, "O"), (3, "O"), (4, "O"), (5, "O"), (6, "N"), (7, "N"), (8, "N"), (9, "N"), (10, "N"),
@@ -332,7 +333,7 @@ class Molecule:
         if a1 and a2:
           maybe_bond = self.get_bond(a1, a2)
           if maybe_bond is None:
-            msg = 'OpenBabel found additional bond: {0}'.format(set([a1.id, a2.id]))
+            msg = 'OpenBabel found additional bond: {0}'.format({a1.id, a2.id})
             if False:
               raise Exception(msg)
             else:
@@ -546,9 +547,17 @@ def call_babel(data, ifmt, ofmt, gen2d=False, add_h=True, timelimit=OBABEL_TIMEO
   """Calls obabel."""
 
   if gen2d:
-    cmd = "echo \"%s\" | %s -i%s -o%s%s --gen2d" % (data, BABEL, ifmt, ofmt, ' -h' if add_h else '')
+      cmd = "echo \"%s\" | %s -i%s -o%s%s --gen2d" % (data, BABEL, ifmt, ofmt, ' -h' if add_h else '')
   else:
     cmd = "echo \"%s\" | %s -i%s -o%s%s" % (data, BABEL, ifmt, ofmt, ' -h' if add_h else '')
+
+  custom_env = os.environ.copy()
+
+  if not add_h:
+    custom_env["DONT_FIX_H_INCHI"] = "1"
+
+  if BABEL_LIBDIR is not None:
+    custom_env['BABEL_LIBDIR'] = BABEL_LIBDIR
 
   p = Popen(
     cmd,
@@ -568,7 +577,7 @@ def call_babel(data, ifmt, ofmt, gen2d=False, add_h=True, timelimit=OBABEL_TIMEO
     os.killpg(os.getpgid(p.pid), signal.SIGTERM)
     raise
 
-  if len(err) > 0 and err != SUCCESS_MSG:
+  if len(err) > 0 and not SUCCESS_MSG in err:
     raise ConversionError(err)
   return out.strip()
 
