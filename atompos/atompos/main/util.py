@@ -277,7 +277,7 @@ class Molecule:
         self.get_atom(elementID).set_2d(pos2d[0], pos2d[1])
 
       # infer bond types using obabel
-      self.parse_mol2(call_babel(pdb, "pdb", "mol2", add_h=False), set2d=False)
+      self.parse_mol2(call_babel(pdb, "pdb", "mol2", add_h=False, timelimit=3 * OBABEL_TIMEOUT), set2d=False)
 
     self.normalize_positions()
 
@@ -494,7 +494,7 @@ def get_data_atb(molid):
     if e.code == 404:
       msg = "Molecule does not exist"
     else:
-      msg = "Server error: status %s (%s)" % (e.code, e)
+      msg = "Server error: status %s (%s)" % (e.code, e.geturl())
     raise LoadError("Could not retrieve LGF from ATB: %s" % msg)
   except Exception as e:
     raise LoadError("Could not retrieve LGF from ATB: %s" % e)
@@ -660,7 +660,7 @@ def get_atom_data_fdb(args):
         cache_key = 'oapoc_fdb_' + str(molid) + '_' + str(hash['hash'])
         return cache.get_or_set(cache_key, lambda: get_data_fdb(molid), CACHE_TIMEOUT)
       except (LoadError, ConversionError, UnknownElementError) as e:
-        return {'error': e.message}
+        return {'error': e.message, 'error_type': str(type(e))}
     else:
       return {'error': 'Could not find molid %d' % molid, 'traceback': None}
   except:
@@ -672,7 +672,7 @@ def get_atom_data_atb(args):
   try:
     validate_args_atb(args)
   except ValidationError as e:
-    return {'error': e.message}
+    return {'error': e.message, 'error_type': str(type(e))}
 
   # This is safe now, as all have been validated
   molid = args.get("molid")
@@ -683,9 +683,11 @@ def get_atom_data_atb(args):
     if hash['status'] == 'success':
       try:
         cache_key = 'oapoc_atb_' + str(molid) + '_' + str(hash['latest_topology_hash'])
-        return cache.get_or_set(cache_key, lambda: get_data_atb(molid), CACHE_TIMEOUT)
+        cached_answer = cache.get_or_set(cache_key, lambda: get_data_atb(molid), CACHE_TIMEOUT)
+        cached_answer['cached'] = True
+        return cached_answer
       except (LoadError, ConversionError, UnknownElementError) as e:
-        return {'error': e.message}
+        return {'error': e.message, 'error_type': str(type(e))}
     else:
       return {'error': 'Could not find molid %d' % molid}
   except HTTPError:
@@ -711,7 +713,7 @@ def get_atom_data(args, cache_key=None):
   try:
     validate_args(args)
   except ValidationError as e:
-    return {'error': e.message}
+    return {'error': e.message, 'error_type': str(type(e))}
 
   # This is safe now, as all have been validated
   fmt = args.get("fmt")
@@ -721,12 +723,16 @@ def get_atom_data(args, cache_key=None):
     if not fmt:
       fmt = infer_format(data)
     if fmt.lower() == "atb":
-      return get_atom_data_atb({'molid': data})
+      answer = get_atom_data_atb({'molid': data})
+      answer['type'] = 'atb'
+      return answer
     else:
       cache_key = cache_key or 'oapoc_data_' + hashlib.md5(data).hexdigest()
-      return cache.get_or_set(cache_key, lambda: get_data(data, fmt), CACHE_TIMEOUT)
+      cached_answer = cache.get_or_set(cache_key, lambda: get_data(data, fmt), CACHE_TIMEOUT)
+      cached_answer['cached'] = True
+      return cached_answer
   except (ConversionError, UnknownElementError, LoadError) as e:
-    return {'error': e.message}
+    return {'error': e.message, 'error_type': str(type(e))}
 
 
 def validate_args(args):
